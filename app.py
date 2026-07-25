@@ -63,7 +63,7 @@ def init_db():
         )
     ''')
     
-    # Tabla Relacional de Pagos Parciales
+    # Tabla Relacional de Pagos
     c.execute('''
         CREATE TABLE IF NOT EXISTS pagos_embarques (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -302,31 +302,42 @@ else:
 
                     # SECCIÓN EXCLUSIVA DE BALANCES Y PAGOS (SOLO COMPRAS)
                     st.markdown("---")
-                    st.subheader(f"💰 Balance y Pagos de la Factura ({selected_invoice})")
+                    st.subheader(f"💰 Balance Financiero de Fábrica ({selected_invoice})")
                     
                     df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
-                    monto_total_pagado = df_pagos_emb['monto'].sum() if not df_pagos_emb.empty else 0.0
+                    
+                    # FILTRADO EXCLUSIVO: Solo los pagos a fábrica restan al monto total de la factura
+                    df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
+                    
+                    monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
                     monto_factura = float(row_data['monto_factura']) if pd.notna(row_data['monto_factura']) else 0.0
-                    saldo_pendiente = monto_factura - monto_total_pagado
+                    saldo_pendiente = monto_factura - monto_total_pagado_fabrica
 
                     # Métricas Financieras
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric("Monto Total Factura", f"${monto_factura:,.2f} USD")
-                    m2.metric("Total Abonado/Pagado", f"${monto_total_pagado:,.2f} USD")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Monto Total Factura (Fábrica)", f"${monto_factura:,.2f} USD")
+                    m2.metric("Total Abonado a Fábrica", f"${monto_total_pagado_fabrica:,.2f} USD")
                     
+                    # ALERTA DE COLOR DINÁMICO PARA EL SALDO PENDIENTE
                     if saldo_pendiente <= 0 and monto_factura > 0:
-                        m3.metric("Saldo Pendiente", "$0.00 USD", delta="¡PAGADO COMPLETAMENTE!", delta_color="normal")
+                        st.success(f"🟢 **Saldo Pendiente Fábrica:** $0.00 USD — ¡PAGADO COMPLETAMENTE!")
+                    elif saldo_pendiente > 0:
+                        st.error(f"🔴 **Saldo Pendiente por Pagar a Fábrica:** ${saldo_pendiente:,.2f} USD")
                     else:
-                        m3.metric("Saldo Pendiente Por Pagar", f"${saldo_pendiente:,.2f} USD", delta=f"-${saldo_pendiente:,.2f}", delta_color="inverse")
+                        st.info(f"⚪ **Saldo Pendiente por Pagar a Fábrica:** $0.00 USD")
 
-                    # Lista de Abonos
+                    # Historial de Todos los Pagos (Fábrica + Freight Forwarder)
+                    st.markdown("---")
                     if df_pagos_emb.empty:
-                        st.info("No se han registrado pagos/abonos para este embarque.")
+                        st.info("No se han registrado pagos o abonos para este embarque.")
                     else:
-                        st.markdown("##### Historial de Abonos:")
+                        st.markdown("##### 📄 Historial de Pagos y Comprobantes Registrados:")
                         for idx, p_row in df_pagos_emb.iterrows():
                             c_p1, c_p2, c_p3, c_p4 = st.columns([2, 2, 2, 2])
-                            c_p1.write(f"**Tipo:** {p_row['tipo_pago']}")
+                            
+                            # Distintivo visual en el tipo de pago
+                            badge = "🏭" if p_row['tipo_pago'] == 'Pago a Fábrica' else "🚢"
+                            c_p1.write(f"**Tipo:** {badge} {p_row['tipo_pago']}")
                             c_p2.write(f"**Banco:** {p_row['banco']}")
                             c_p3.write(f"**Monto:** ${p_row['monto']:,.2f} USD")
                             c_p4.write(f"**Ref:** {p_row['referencia']} ({p_row['fecha_pago']})")
@@ -334,7 +345,7 @@ else:
                             if has_valid_file(p_row['path_comprobante']):
                                 with open(p_row['path_comprobante'], "rb") as f_comp:
                                     st.download_button(
-                                        label=f"📄 Comprobante Ref #{p_row['referencia']}",
+                                        label=f"📄 Ver Comprobante #{p_row['referencia']}",
                                         data=f_comp,
                                         file_name=os.path.basename(p_row['path_comprobante']),
                                         mime="application/octet-stream",
@@ -424,7 +435,6 @@ else:
         else:
             invoices_map = {row['num_invoice']: f"{row['num_invoice']} - {row['fabricante']} (Contenedor: {row['num_contenedor']})" for _, row in df_emb.iterrows()}
             
-            # SUB-PESTAÑAS DE PAGO: REGISTRAR vs EDITAR/ELIMINAR
             tab_nuevo, tab_editar = st.tabs(["➕ Registrar Nuevo Pago", "✏️ Editar / Eliminar Pago Existente"])
 
             with tab_nuevo:
@@ -462,7 +472,7 @@ else:
                                 VALUES (?, ?, ?, ?, ?, ?, ?)
                             ''', (selected_inv_key, tipo_pago, banco_pago, monto_pago, str(fecha_pago), num_ref, file_path_pago))
                             conn.commit()
-                            st.success(f"✅ Pago de ${monto_pago:,.2f} USD asignado con éxito a la Invoice {selected_inv_key}.")
+                            st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado con éxito para la Invoice {selected_inv_key}.")
                             st.rerun()
 
             with tab_editar:
@@ -472,9 +482,8 @@ else:
                 if df_all_pagos.empty:
                     st.info("No hay pagos registrados para modificar.")
                 else:
-                    # Crear mapeo para el selectbox
                     pagos_map = {
-                        row['id']: f"ID #{row['id']} | Inv: {row['num_invoice']} | Ref: {row['referencia']} | Monto: ${row['monto']:,.2f} USD ({row['fecha_pago']})" 
+                        row['id']: f"ID #{row['id']} | Inv: {row['num_invoice']} | [{row['tipo_pago']}] | Ref: {row['referencia']} | Monto: ${row['monto']:,.2f} USD" 
                         for _, row in df_all_pagos.iterrows()
                     }
 
