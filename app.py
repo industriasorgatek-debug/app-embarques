@@ -173,7 +173,7 @@ def generar_pdf_embarque(row_data, df_pagos):
         [Paragraph("<b>ETA (Arribo):</b>", body_style), str(row_data['eta']), Paragraph("<b>Producto:</b>", body_style), str(row_data['producto'])]
     ]
 
-    t1 = Table(data_logistica, colWidths=[110, 150, 110, 150])
+    t1 = Table(data_logistica, colWidths=[110, 160, 110, 160]) # Total = 540
     t1.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
@@ -195,7 +195,7 @@ def generar_pdf_embarque(row_data, df_pagos):
         [Paragraph("<b>Agente de Aduanas:</b>", body_style), str(row_data['agente_aduanas'])]
     ]
 
-    t2 = Table(data_agentes, colWidths=[150, 370])
+    t2 = Table(data_agentes, colWidths=[150, 390]) # Total = 540
     t2.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F1F5F9')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
@@ -226,15 +226,15 @@ def generar_pdf_embarque(row_data, df_pagos):
     elif not df_flete.empty:
         estado_flete_str = "🟢 Flete Pagado"
     else:
-        estado_flete_str = "⚠️ PENDIENTE FLETE"
+        estado_flete_str = "⚠️ PENDIENTE"
 
-    # 1. Tabla Resumen Fábrica (Ancho total 520px)
+    # 1. Tabla Resumen Fábrica (Ancho total 540px)
     data_fabrica = [
         [Paragraph("<b>FÁBRICA — Factura:</b>", body_style), f"${monto_factura:,.2f}",
          Paragraph("<b>Total Abonado:</b>", body_style), f"${monto_abonado_fabrica:,.2f}",
          Paragraph("<b>Saldo Pendiente:</b>", body_style), f"${saldo_pendiente_fabrica:,.2f}"]
     ]
-    t_fabrica = Table(data_fabrica, colWidths=[120, 80, 100, 80, 100, 40])
+    t_fabrica = Table(data_fabrica, colWidths=[110, 80, 90, 80, 95, 85]) # Total = 540
     t_fabrica.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#E0F2FE')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
@@ -245,13 +245,15 @@ def generar_pdf_embarque(row_data, df_pagos):
     elements.append(t_fabrica)
     elements.append(Spacer(1, 4))
 
-    # 2. Tabla Resumen Flete (Ancho total 520px con espacio suficiente para el nombre)
+    # 2. Tabla Resumen Flete (Ancho total 540px, reducida a 5 columnas)
     data_flete = [
-        [Paragraph("<b>FLETE — Agente:</b>", body_style), Paragraph(f"<b>{row_data['agente_carga'] or 'N/A'}</b>", body_style),
-         Paragraph("<b>Estatus Flete:</b>", body_style), estado_flete_str,
-         Paragraph("<b>Pagado Flete:</b>", body_style), f"${monto_flete_pagado:,.2f}"]
+        [Paragraph("<b>FLETE — Agente:</b>", body_style), 
+         Paragraph(f"<b>{row_data['agente_carga'] or 'N/A'}</b>", body_style),
+         Paragraph(f"<b>{estado_flete_str}</b>", body_style),
+         Paragraph("<b>Pagado Flete:</b>", body_style), 
+         f"${monto_flete_pagado:,.2f}"]
     ]
-    t_flete = Table(data_flete, colWidths=[110, 140, 90, 90, 90, 0])
+    t_flete = Table(data_flete, colWidths=[100, 170, 110, 80, 80]) # Total = 540
     t_flete.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#FEF3C7')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
@@ -280,7 +282,7 @@ def generar_pdf_embarque(row_data, df_pagos):
                 Paragraph(str(p['fecha_pago']), body_style),
                 Paragraph(str(p['referencia']), body_style)
             ])
-        t_pagos = Table(table_data_pagos, colWidths=[120, 100, 90, 80, 130])
+        t_pagos = Table(table_data_pagos, colWidths=[120, 100, 90, 80, 150]) # Total = 540
         t_pagos.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
