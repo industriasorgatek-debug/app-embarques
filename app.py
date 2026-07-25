@@ -125,12 +125,16 @@ else:
     
     role = st.session_state.user_role
     
+    # Definición de opciones simplificada por rol
     if role == "admin":  # Compras
-        options = ["📋 Control de Embarques", "📊 Carga Masiva (Excel/CSV)", "➕ Cargar Nuevo Embarque", "✏️ Editar / Actualizar Embarque", "📦 Zona Almacén", "💼 Zona Administración"]
-    elif role == "admon":
-        options = ["📋 Control de Embarques", "💼 Zona Administración"]
-    elif role == "almacen":
-        options = ["📋 Control de Embarques", "📦 Zona Almacén"]
+        options = [
+            "📋 Control de Embarques", 
+            "📊 Carga Masiva (Excel/CSV)", 
+            "➕ Cargar Nuevo Embarque", 
+            "✏️ Editar / Actualizar Embarque"
+        ]
+    else:  # Almacén y Administración solo requieren la vista centralizada
+        options = ["📋 Control de Embarques"]
 
     menu = st.sidebar.radio("Navegación", options)
 
@@ -144,10 +148,10 @@ else:
 
     conn = sqlite3.connect(DB_PATH)
 
-    # --- VISTA 1: CONTROL DE EMBARQUES ---
+    # --- VISTA ÚNICA / PRINCIPAL: CONTROL DE EMBARQUES ---
     if menu == "📋 Control de Embarques":
         st.title("📋 Control General de Embarques")
-        st.caption("Visualización en tiempo real del estatus de la carga")
+        st.caption("Visualización interactiva y gestión de archivos en tiempo real")
         
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
         
@@ -169,9 +173,9 @@ else:
 
             styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
 
-            st.info("💡 **Tip:** Haz clic sobre cualquier fila de la tabla para interactuar y descargar sus archivos abajo.")
+            st.info("💡 **Tip:** Haz clic sobre cualquier fila de la tabla para seleccionar un embarque y descargar sus documentos abajo.")
             
-            # Tabla interactiva habilitada para TODOS los roles
+            # Tabla Interactiva
             event = st.dataframe(
                 styled_df,
                 use_container_width=True,
@@ -190,15 +194,15 @@ else:
                 st.markdown("---")
                 st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
-                # ACCIONES DESPLEGABLES SEGÚN EL ROL DE USUARIO
+                # ACCIONES DINÁMICAS POR ROL
 
-                # 1. ROL ALMACÉN -> Botón de Descarga del Packing List
+                # 1. ROL ALMACÉN -> Solo Packing List
                 if role == "almacen":
-                    st.subheader("📦 Descarga Directa de Packing List")
+                    st.subheader("📦 Descarga de Packing List")
                     if has_valid_file(row_data['path_packing']):
                         with open(row_data['path_packing'], "rb") as f:
                             st.download_button(
-                                label=f"⬇️ Descargar Packing List de Invoice {selected_invoice}",
+                                label=f"⬇️ Descargar Packing List ({selected_invoice})",
                                 data=f,
                                 file_name=os.path.basename(row_data['path_packing']),
                                 mime="application/octet-stream",
@@ -208,7 +212,7 @@ else:
                     else:
                         st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
-                # 2. ROL ADMINISTRACIÓN -> Expediente de Documentos
+                # 2. ROL ADMINISTRACIÓN -> Todo el Expediente Digital
                 elif role == "admon":
                     st.subheader("💼 Expediente Digital del Embarque")
                     docs = [
@@ -234,9 +238,9 @@ else:
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
-                # 3. ROL COMPRAS / ADMIN -> Edición y Visualización
+                # 3. ROL COMPRAS / ADMIN -> Edición
                 elif role == "admin":
-                    if st.button(f"✏️ Desplegar Formulario de Edición ({selected_invoice})", type="primary"):
+                    if st.button(f"✏️ Desplegar Formulario de Edición Rápida ({selected_invoice})", type="primary"):
                         st.session_state.editing_invoice = selected_invoice
 
             # Formulario de Edición para Compras (Admin)
@@ -310,10 +314,6 @@ else:
     elif menu == "📊 Carga Masiva (Excel/CSV)":
         st.title("📊 Carga Masiva de Embarques")
         st.caption("Actualiza o inserta múltiples embarques subiendo una hoja de cálculo.")
-
-        st.markdown("""
-        **Columnas soportadas:** `num_invoice` (o `INVOICE`), `num_bl`, `num_contenedor`, `naviera`, `fabricante` (o `EMPRESA`), `producto`, `origen`, `destino`, `eta` (o `ESTIMADO`), `estatus`, `agente_carga` (o `AGENTE`), `agente_aduanas` (o `AG ADUANA`), `consignatario` (o `CONSIGNEE`).
-        """)
 
         sample_data = pd.DataFrame([{
             "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
@@ -532,64 +532,5 @@ else:
                           p_pack, p_inv, p_fle, p_bl, selected_invoice))
                     conn.commit()
                     st.success(f"✅ ¡Embarque Invoice {selected_invoice} actualizado con éxito!")
-
-    # --- VISTA 5: ZONA ALMACÉN ---
-    elif menu == "📦 Zona Almacén":
-        st.title("📦 Zona Almacén - Descarga de Packing Lists")
-        df = pd.read_sql_query("SELECT * FROM embarques", conn)
-        
-        if df.empty:
-            st.info("No hay embarques registrados.")
-        else:
-            selected_invoice = st.selectbox("Selecciona por Número de Invoice:", df['num_invoice'].unique())
-            row = df[df['num_invoice'] == selected_invoice].iloc[0]
-            
-            st.markdown(f"**Contenedor:** {row['num_contenedor']} | **ETA (Llegada):** {row['eta']} | **Producto:** {row['producto']}")
-            
-            if has_valid_file(row['path_packing']):
-                with open(row['path_packing'], "rb") as f:
-                    st.download_button(
-                        label=f"⬇️ Descargar Packing List de Invoice {selected_invoice}",
-                        data=f,
-                        file_name=os.path.basename(row['path_packing']),
-                        mime="application/octet-stream"
-                    )
-            else:
-                st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
-
-    # --- VISTA 6: ZONA ADMINISTRACIÓN ---
-    elif menu == "💼 Zona Administración":
-        st.title("💼 Zona Administración - Expedientes de Carga")
-        df = pd.read_sql_query("SELECT * FROM embarques", conn)
-        
-        if df.empty:
-            st.info("No hay embarques registrados.")
-        else:
-            selected_invoice = st.selectbox("Selecciona por Número de Invoice:", df['num_invoice'].unique())
-            row = df[df['num_invoice'] == selected_invoice].iloc[0]
-            
-            naviera_val = row['naviera'] if 'naviera' in row and row['naviera'] else "No especificada"
-            st.markdown(f"**Contenedor:** {row['num_contenedor']} | **BL N°:** {row['num_bl']} | **Naviera:** {naviera_val}")
-            
-            docs = [
-                ("Packing List", row['path_packing']),
-                ("Factura Comercial (Invoice)", row['path_invoice']),
-                ("Factura de Flete", row['path_flete']),
-                ("Bill of Lading (BL)", row['path_bl'])
-            ]
-            
-            st.markdown("#### Documentos Disponibles:")
-            for label, path in docs:
-                if has_valid_file(path):
-                    with open(path, "rb") as f:
-                        st.download_button(
-                            label=f"⬇️ Descargar {label}",
-                            data=f,
-                            file_name=os.path.basename(path),
-                            mime="application/octet-stream",
-                            key=f"admon_{label}_{selected_invoice}"
-                        )
-                else:
-                    st.caption(f"❌ {label}: No cargado")
 
     conn.close()
