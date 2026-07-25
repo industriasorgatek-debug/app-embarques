@@ -2,6 +2,7 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import os
+from datetime import date
 
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE CARPETAS Y BASE DE DATOS
@@ -55,6 +56,18 @@ def save_file(file, num_invoice, doc_type):
     with open(filepath, "wb") as f:
         f.write(file.getbuffer())
     return filepath
+
+# Función para parsear fechas de forma 100% segura
+def safe_parse_date(val):
+    if pd.isna(val) or str(val).strip() in ['', 'nan', 'NaT', 'None']:
+        return date.today()
+    try:
+        parsed = pd.to_datetime(val)
+        if pd.isna(parsed):
+            return date.today()
+        return parsed.date()
+    except Exception:
+        return date.today()
 
 # Configuración de página
 st.set_page_config(page_title="Control de Embarques", layout="wide")
@@ -189,10 +202,9 @@ else:
                             
                         with col3:
                             consignatario_e = st.text_input("Consignatario", value=str(row_data['consignatario'] or ''))
-                            try:
-                                fecha_v = pd.to_datetime(row_data['eta']).date()
-                            except:
-                                fecha_v = pd.to_datetime("today").date()
+                            
+                            # Parseo ultra seguro de fecha
+                            fecha_v = safe_parse_date(row_data['eta'])
                             eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
                             
                             est_v = str(row_data['estatus']) if row_data['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
@@ -425,10 +437,9 @@ else:
                     
                 with col3:
                     consignatario_edit = st.text_input("Consignatario", value=str(row['consignatario'] or ''))
-                    try:
-                        fecha_val = pd.to_datetime(row['eta']).date()
-                    except:
-                        fecha_val = pd.to_datetime("today").date()
+                    
+                    # Parseo ultra seguro de fecha
+                    fecha_val = safe_parse_date(row['eta'])
                     eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
                     
                     est_val = str(row['estatus']) if row['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
