@@ -25,7 +25,9 @@ PINS = {
 
 NAVIERAS = ["CMA CGM", "HAPAG-LLOYD", "MAERSK", "ONE", "MSC", "COSCO", "EVERGREEN", "OTRO"]
 
+# NUEVO ESTATUS ADICIONADO: "Pendiente Pago"
 ESTATUS_LISTA = [
+    "Pendiente Pago",
     "En Producción",
     "En POL",
     "En Tránsito",
@@ -208,7 +210,7 @@ else:
             def check_pago_ff(row):
                 estatus = str(row['estatus']).strip()
                 inv = row['num_invoice']
-                if estatus == 'Entregado':
+                if estatus in ['Entregado', 'Pendiente Pago']:
                     return '✅ No Aplica / Pagado'
                 elif inv in invoices_con_pago_ff:
                     return '🟢 Flete Pagado'
@@ -217,10 +219,15 @@ else:
 
             df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
+            # ESTILOS DINÁMICOS PARA ESTATUS DE EMBARQUE
             def highlight_status(val):
                 val_clean = str(val).strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
                 if val_clean == 'entregado':
                     return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'
+                elif 'pendiente pago' in val_clean:
+                    return 'background-color: #E2E8F0; color: #334155; font-weight: bold;'
+                elif 'produccion' in val_clean:
+                    return 'background-color: #E0F2FE; color: #0369A1; font-weight: bold;'
                 elif 'transito' in val_clean:
                     return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'
                 elif 'aduana' in val_clean:
@@ -234,7 +241,7 @@ else:
                     return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
                 return ''
 
-            # COLUMNAS A MOSTRAR: Si es Compras (admin) incluye 'Estado Flete', de lo contrario NO
+            # COLUMNAS A MOSTRAR: Solo Compras ve "Estado Flete"
             if role == "admin":
                 cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status']
                 cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete']
@@ -271,10 +278,10 @@ else:
 
                 # ALERTA VISUAL DE FLETE PENDIENTE EN EL DETALLE (SOLO COMPRAS)
                 if role == "admin":
-                    es_entregado = (str(row_data['estatus']).strip() == "Entregado")
+                    es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
                     tiene_pago_ff = selected_invoice in invoices_con_pago_ff
 
-                    if not es_entregado and not tiene_pago_ff:
+                    if not es_omito_flete and not tiene_pago_ff:
                         st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
                     elif tiene_pago_ff:
                         st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
@@ -321,7 +328,7 @@ else:
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
-                # 3. ROL COMPRAS (ADMIN) - INCLUYE RESUMEN FINANCIERO Y PAGOS
+                # 3. ROL COMPRAS (ADMIN)
                 elif role == "admin":
                     st.subheader("💼 Expediente Digital del Embarque")
                     docs = [
@@ -347,25 +354,22 @@ else:
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
-                    # SECCIÓN EXCLUSIVA DE BALANCES Y PAGOS (SOLO COMPRAS)
+                    # BALANCES Y PAGOS (SOLO COMPRAS)
                     st.markdown("---")
                     st.subheader(f"💰 Balance Financiero de Fábrica ({selected_invoice})")
                     
                     df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
                     
-                    # FILTRADO EXCLUSIVO: Solo los pagos a fábrica restan al monto total de la factura
                     df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
                     
                     monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
                     monto_factura = float(row_data['monto_factura']) if pd.notna(row_data['monto_factura']) else 0.0
                     saldo_pendiente = monto_factura - monto_total_pagado_fabrica
 
-                    # Métricas Financieras
                     m1, m2 = st.columns(2)
                     m1.metric("Monto Total Factura (Fábrica)", f"${monto_factura:,.2f} USD")
                     m2.metric("Total Abonado a Fábrica", f"${monto_total_pagado_fabrica:,.2f} USD")
                     
-                    # ALERTA DE COLOR DINÁMICO PARA EL SALDO PENDIENTE
                     if saldo_pendiente <= 0 and monto_factura > 0:
                         st.success(f"🟢 **Saldo Pendiente Fábrica:** $0.00 USD — ¡PAGADO COMPLETAMENTE!")
                     elif saldo_pendiente > 0:
@@ -373,7 +377,6 @@ else:
                     else:
                         st.info(f"⚪ **Saldo Pendiente por Pagar a Fábrica:** $0.00 USD")
 
-                    # Historial de Todos los Pagos (Fábrica + Freight Forwarder)
                     st.markdown("---")
                     if df_pagos_emb.empty:
                         st.info("No se han registrado pagos o abonos para este embarque.")
@@ -474,7 +477,7 @@ else:
         st.title("💳 Registro y Control de Pagos Internacionales")
         st.caption("Módulo exclusivo para Compras: Administra, modifica y elimina transferencias realizadas")
 
-        df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, num_contenedor, monto_factura FROM embarques", conn)
+        df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, num_contenedor, monto_factura, estatus FROM embarques", conn)
         
         if df_emb.empty:
             st.warning("⚠️ Primero debe registrar al menos un embarque para asignarle pagos.")
@@ -517,6 +520,15 @@ else:
                                 INSERT INTO pagos_embarques (num_invoice, tipo_pago, banco, monto, fecha_pago, referencia, path_comprobante)
                                 VALUES (?, ?, ?, ?, ?, ?, ?)
                             ''', (selected_inv_key, tipo_pago, banco_pago, monto_pago, str(fecha_pago), num_ref, file_path_pago))
+                            
+                            # CAMBIO AUTOMÁTICO DE ESTATUS: De 'Pendiente Pago' a 'En Producción' si es Pago a Fábrica
+                            if tipo_pago == "Pago a Fábrica":
+                                c.execute("SELECT estatus FROM embarques WHERE num_invoice = ?", (selected_inv_key,))
+                                estatus_actual = c.fetchone()[0]
+                                if estatus_actual == "Pendiente Pago":
+                                    c.execute("UPDATE embarques SET estatus = 'En Producción' WHERE num_invoice = ?", (selected_inv_key,))
+                                    st.info("ℹ️ **Estatus Actualizado:** El embarque cambió automáticamente de 'Pendiente Pago' a **'En Producción'**.")
+
                             conn.commit()
                             st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado con éxito para la Invoice {selected_inv_key}.")
                             st.rerun()
@@ -618,7 +630,7 @@ else:
             "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
             "naviera": "MSC", "fabricante": "Tech Corp", "producto": "Lámparas LED",
             "origen": "China", "destino": "Venezuela", "eta": "2026-08-15",
-            "estatus": "En Tránsito", "agente_carga": "DHL", "agente_aduanas": "Aduanas C.A.",
+            "estatus": "Pendiente Pago", "agente_carga": "DHL", "agente_aduanas": "Aduanas C.A.",
             "consignatario": "Industrias Orgatek", "monto_factura": 25000.00
         }])
         csv_sample = sample_data.to_csv(index=False).encode('utf-8')
@@ -648,7 +660,7 @@ else:
                         ori = str(row.get('origen', 'China')) if pd.notna(row.get('origen')) else 'China'
                         des = str(row.get('destino', 'Venezuela')) if pd.notna(row.get('destino')) else 'Venezuela'
                         eta = str(row.get('eta', '')) if pd.notna(row.get('eta')) else ''
-                        est = str(row.get('estatus', 'En Producción')) if pd.notna(row.get('estatus')) else 'En Producción'
+                        est = str(row.get('estatus', 'Pendiente Pago')) if pd.notna(row.get('estatus')) else 'Pendiente Pago'
                         ag_c = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) else ''
                         ag_a = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
                         cons = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
@@ -687,7 +699,8 @@ else:
             with col3:
                 consignatario = st.text_input("Consignatario")
                 eta = st.date_input("Estimado de Arribo (ETA)")
-                estatus = st.selectbox("Estatus Inicial", ESTATUS_LISTA)
+                # 'Pendiente Pago' como opción por defecto
+                estatus = st.selectbox("Estatus Inicial", ESTATUS_LISTA, index=0)
             
             st.markdown("### Adjuntar Documentación (PDF/Excel)")
             col_f1, col_f2 = st.columns(2)
@@ -712,7 +725,7 @@ else:
                     try:
                         c.execute('''INSERT INTO embarques (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, eta, estatus, path_packing, path_invoice, path_flete, path_bl, monto_factura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, str(eta), estatus, p_pack, p_inv, p_fle, p_bl, monto_factura))
                         conn.commit()
-                        st.success(f"Embarque Invoice {num_invoice} registrado.")
+                        st.success(f"Embarque Invoice {num_invoice} registrado en estatus '{estatus}'.")
                     except sqlite3.IntegrityError:
                         st.error(f"❌ La Invoice {num_invoice} ya existe.")
 
