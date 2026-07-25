@@ -2,7 +2,14 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import os
+import io
 from datetime import date
+
+# Importación para la generación del PDF
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE CARPETAS Y BASE DE DATOS
@@ -25,7 +32,6 @@ PINS = {
 
 NAVIERAS = ["CMA CGM", "HAPAG-LLOYD", "MAERSK", "ONE", "MSC", "COSCO", "EVERGREEN", "OTRO"]
 
-# NUEVO ESTATUS ADICIONADO: "Pendiente Pago"
 ESTATUS_LISTA = [
     "Pendiente Pago",
     "En Producción",
@@ -125,6 +131,134 @@ def safe_parse_date(val):
     except Exception:
         return date.today()
 
+# -------------------------------------------------------------
+# FUNCIÓN GENERADORA DEL PDF DE LA FICHA DEL EMBARQUE
+# -------------------------------------------------------------
+def generar_pdf_embarque(row_data, df_pagos):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36
+    )
+    
+    styles = getSampleStyleSheet()
+    
+    # Estilos personalizados
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor('#0F172A'), alignment=0)
+    subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Heading2'], fontSize=12, leading=15, textColor=colors.HexColor('#0369A1'))
+    body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=9, leading=12)
+    header_cell_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.white, fontName='Helvetica-Bold')
+
+    elements = []
+
+    # Encabezado
+    elements.append(Paragraph(f"🚢 FICHA TÉCNICA DE EMBARQUE — INVOICE: {row_data['num_invoice']}", title_style))
+    elements.append(Paragraph(f"Generado el: {date.today().strftime('%d/%m/%Y')} | Departamento de Compras", body_style))
+    elements.append(Spacer(1, 15))
+
+    # Tabla 1: Información Logística Principal
+    elements.append(Paragraph("📦 Datos Logísticos del Embarque", subtitle_style))
+    elements.append(Spacer(1, 5))
+
+    data_logistica = [
+        [Paragraph("<b>Estatus Actual:</b>", body_style), str(row_data['estatus']), Paragraph("<b>Línea Naviera:</b>", body_style), str(row_data['naviera'])],
+        [Paragraph("<b>N° Contenedor:</b>", body_style), str(row_data['num_contenedor']), Paragraph("<b>N° BL:</b>", body_style), str(row_data['num_bl'])],
+        [Paragraph("<b>Origen:</b>", body_style), str(row_data['origen']), Paragraph("<b>Destino:</b>", body_style), str(row_data['destino'])],
+        [Paragraph("<b>ETA (Arribo):</b>", body_style), str(row_data['eta']), Paragraph("<b>Producto:</b>", body_style), str(row_data['producto'])]
+    ]
+
+    t1 = Table(data_logistica, colWidths=[110, 150, 110, 150])
+    t1.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    elements.append(t1)
+    elements.append(Spacer(1, 15))
+
+    # Tabla 2: Contactos y Agentes
+    elements.append(Paragraph("👥 Proveedor y Agentes Asignados", subtitle_style))
+    elements.append(Spacer(1, 5))
+
+    data_agentes = [
+        [Paragraph("<b>Fabricante / Proveedor:</b>", body_style), str(row_data['fabricante'])],
+        [Paragraph("<b>Consignatario:</b>", body_style), str(row_data['consignatario'])],
+        [Paragraph("<b>Agente de Carga (FF):</b>", body_style), str(row_data['agente_carga'])],
+        [Paragraph("<b>Agente de Aduanas:</b>", body_style), str(row_data['agente_aduanas'])]
+    ]
+
+    t2 = Table(data_agentes, colWidths=[150, 370])
+    t2.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F1F5F9')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    elements.append(t2)
+    elements.append(Spacer(1, 15))
+
+    # Módulo Financiero
+    elements.append(Paragraph("💰 Resumen Financiero y Pagos a Fábrica", subtitle_style))
+    elements.append(Spacer(1, 5))
+
+    monto_factura = float(row_data['monto_factura']) if pd.notna(row_data['monto_factura']) else 0.0
+    df_fabrica = df_pagos[df_pagos['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos.empty else pd.DataFrame()
+    monto_abonado = df_fabrica['monto'].sum() if not df_fabrica.empty else 0.0
+    saldo_pendiente = monto_factura - monto_abonado
+
+    data_finanzas = [
+        [Paragraph("<b>Monto Factura:</b>", body_style), f"${monto_factura:,.2f} USD",
+         Paragraph("<b>Total Abonado:</b>", body_style), f"${monto_abonado:,.2f} USD",
+         Paragraph("<b>Saldo Pendiente:</b>", body_style), f"${saldo_pendiente:,.2f} USD"]
+    ]
+
+    t3 = Table(data_finanzas, colWidths=[80, 90, 80, 90, 90, 90])
+    t3.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#E0F2FE')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#0284C7')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    elements.append(t3)
+    elements.append(Spacer(1, 10))
+
+    # Historial de Pagos
+    elements.append(Paragraph("<b>Historial de Pagos Registrados:</b>", body_style))
+    elements.append(Spacer(1, 5))
+
+    if df_pagos.empty:
+        elements.append(Paragraph("<i>No existen pagos registrados para esta invoice.</i>", body_style))
+    else:
+        table_data_pagos = [
+            [Paragraph("Tipo Pago", header_cell_style), Paragraph("Banco", header_cell_style), Paragraph("Monto ($)", header_cell_style), Paragraph("Fecha", header_cell_style), Paragraph("Referencia", header_cell_style)]
+        ]
+        for _, p in df_pagos.iterrows():
+            table_data_pagos.append([
+                Paragraph(str(p['tipo_pago']), body_style),
+                Paragraph(str(p['banco']), body_style),
+                Paragraph(f"${p['monto']:,.2f}", body_style),
+                Paragraph(str(p['fecha_pago']), body_style),
+                Paragraph(str(p['referencia']), body_style)
+            ])
+        t_pagos = Table(table_data_pagos, colWidths=[120, 100, 90, 80, 130])
+        t_pagos.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ]))
+        elements.append(t_pagos)
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
 # Configuración de página
 st.set_page_config(page_title="Control de Embarques", layout="wide")
 
@@ -200,13 +334,11 @@ else:
         if df.empty:
             st.info("No hay embarques registrados aún.")
         else:
-            # Obtener lista de invoices con pago de Freight Forwarder
             if not df_pagos_all.empty:
                 invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique()
             else:
                 invoices_con_pago_ff = []
 
-            # Calcular el estado del Pago de Flete para la tabla
             def check_pago_ff(row):
                 estatus = str(row['estatus']).strip()
                 inv = row['num_invoice']
@@ -219,7 +351,6 @@ else:
 
             df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
-            # ESTILOS DINÁMICOS PARA ESTATUS DE EMBARQUE
             def highlight_status(val):
                 val_clean = str(val).strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
                 if val_clean == 'entregado':
@@ -241,7 +372,6 @@ else:
                     return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
                 return ''
 
-            # COLUMNAS A MOSTRAR: Solo Compras ve "Estado Flete"
             if role == "admin":
                 cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status']
                 cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete']
@@ -276,7 +406,6 @@ else:
                 st.markdown("---")
                 st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
-                # ALERTA VISUAL DE FLETE PENDIENTE EN EL DETALLE (SOLO COMPRAS)
                 if role == "admin":
                     es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
                     tiene_pago_ff = selected_invoice in invoices_con_pago_ff
@@ -354,12 +483,10 @@ else:
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
-                    # BALANCES Y PAGOS (SOLO COMPRAS)
                     st.markdown("---")
                     st.subheader(f"💰 Balance Financiero de Fábrica ({selected_invoice})")
                     
                     df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
-                    
                     df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
                     
                     monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
@@ -403,8 +530,26 @@ else:
                             st.divider()
 
                     st.markdown("---")
-                    if st.button(f"✏️ Desplegar Formulario de Edición Rápida ({selected_invoice})", type="primary"):
-                        st.session_state.editing_invoice = selected_invoice
+                    
+                    # BOTONES DE ACCIÓN: IMPRIMIR FICHA PDF + EDICIÓN RÁPIDA
+                    col_b1, col_b2 = st.columns(2)
+                    
+                    with col_b1:
+                        if st.button(f"✏️ Desplegar Edición Rápida ({selected_invoice})", type="primary", use_container_width=True):
+                            st.session_state.editing_invoice = selected_invoice
+
+                    with col_b2:
+                        # Generación dinámica del PDF al hacer clic
+                        pdf_data = generar_pdf_embarque(row_data, df_pagos_emb)
+                        st.download_button(
+                            label=f"📄 Imprimir Ficha PDF ({selected_invoice})",
+                            data=pdf_data,
+                            file_name=f"Ficha_Embarque_{selected_invoice}.pdf",
+                            mime="application/pdf",
+                            type="secondary",
+                            use_container_width=True,
+                            key=f"btn_pdf_{selected_invoice}"
+                        )
 
             # Formulario de Edición Rápida
             if role == "admin" and st.session_state.editing_invoice:
@@ -521,7 +666,6 @@ else:
                                 VALUES (?, ?, ?, ?, ?, ?, ?)
                             ''', (selected_inv_key, tipo_pago, banco_pago, monto_pago, str(fecha_pago), num_ref, file_path_pago))
                             
-                            # CAMBIO AUTOMÁTICO DE ESTATUS: De 'Pendiente Pago' a 'En Producción' si es Pago a Fábrica
                             if tipo_pago == "Pago a Fábrica":
                                 c.execute("SELECT estatus FROM embarques WHERE num_invoice = ?", (selected_inv_key,))
                                 estatus_actual = c.fetchone()[0]
@@ -699,7 +843,6 @@ else:
             with col3:
                 consignatario = st.text_input("Consignatario")
                 eta = st.date_input("Estimado de Arribo (ETA)")
-                # 'Pendiente Pago' como opción por defecto
                 estatus = st.selectbox("Estatus Inicial", ESTATUS_LISTA, index=0)
             
             st.markdown("### Adjuntar Documentación (PDF/Excel)")
