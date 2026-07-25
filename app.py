@@ -10,7 +10,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 # -----------------------------------------------------------------------------
-# CONFIGURACIÓN DE LA PÁGINA
+# CONFIGURACIÓN DE LA PÁGINA (DEBE SER LA PRIMERA INSTRUCCIÓN DE STREAMLIT)
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Gestión de Embarques e Inventario",
@@ -116,7 +116,6 @@ def generar_pdf_embarque(datos):
 
     # Formatear el pago del flete
     pago_flete_str = "SÍ (PAGADO)" if datos.get('Flete_Pagado') == "Sí" or datos.get('Flete_Pagado') is True else "NO (PENDIENTE)"
-    pago_flete_color = colors.HexColor("#065F46") if "SÍ" in pago_flete_str else colors.HexColor("#991B1B")
 
     # Contenido organizado en Tabla
     data_table = [
@@ -290,7 +289,8 @@ if menu == "📋 Control de Embarques":
                             idx_pago = 1 if registro_sel['Flete_Pagado'] == "Sí" else 0
                             e_pagado = st.selectbox("¿Flete Pagado?", ["No", "Sí"], index=idx_pago)
                             
-                            e_estatus = st.selectbox("Inspección", ["Pendiente", "Aprobado", "Rechazado", "Aprobado con Observación"], index=["Pendiente", "Aprobado", "Rechazado", "Aprobado con Observación"].index(registro_sel['Estatus_Inspeccion']))
+                            idx_estatus = ["Pendiente", "Aprobado", "Rechazado", "Aprobado con Observación"].index(registro_sel['Estatus_Inspeccion']) if registro_sel['Estatus_Inspeccion'] in ["Pendiente", "Aprobado", "Rechazado", "Aprobado con Observación"] else 0
+                            e_estatus = st.selectbox("Inspección", ["Pendiente", "Aprobado", "Rechazado", "Aprobado con Observación"], index=idx_estatus)
                             e_notas = st.text_area("Notas", value=registro_sel['Notas'])
 
                             if st.form_submit_button("Actualizar Registro"):
