@@ -232,8 +232,8 @@ def generar_pdf_embarque(row_data, df_pagos):
         [Paragraph("<b>FÁBRICA — Factura:</b>", body_style), f"${monto_factura:,.2f}",
          Paragraph("<b>Abonado:</b>", body_style), f"${monto_abonado_fabrica:,.2f}",
          Paragraph("<b>Saldo Pendiente:</b>", body_style), f"${saldo_pendiente_fabrica:,.2f}"],
-    
-        [Paragraph("<b>FLETE — Agente:</b>", body_style), str(row_data['agente_carga'] or 'N/A'),
+        
+        [Paragraph("<b>FLETE — Agente:</b>", body_style), Paragraph(str(row_data['agente_carga'] or 'N/A'), body_style),
          Paragraph("<b>Estatus:</b>", body_style), estado_flete_str,
          Paragraph("<b>Total Pagado Flete:</b>", body_style), f"${monto_flete_pagado:,.2f}"]
     ]
