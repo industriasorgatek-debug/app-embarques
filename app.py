@@ -32,14 +32,13 @@ def init_db():
         CREATE TABLE IF NOT EXISTS embarques (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             origen TEXT, destino TEXT, fabricante TEXT,
-            num_invoice TEXT, agente_carga TEXT, agente_aduanas TEXT,
+            num_invoice TEXT UNIQUE, agente_carga TEXT, agente_aduanas TEXT,
             consignatario TEXT, producto TEXT, num_bl TEXT, naviera TEXT,
             num_contenedor TEXT, eta DATE, estatus TEXT,
             path_packing TEXT, path_invoice TEXT, path_flete TEXT, path_bl TEXT
         )
     ''')
     
-    # Migración por seguridad
     c.execute("PRAGMA table_info(embarques)")
     columns = [column[1] for column in c.fetchall()]
     if 'naviera' not in columns:
@@ -50,7 +49,7 @@ def init_db():
 
 init_db()
 
-# Guardar archivo PDF
+# Guardar archivo PDF/Excel adjunto
 def save_file(file, num_invoice, doc_type):
     if file is None:
         return None
@@ -102,7 +101,7 @@ else:
     options = []
     
     if role == "admin":  # Compras
-        options = ["📋 Control de Embarques", "➕ Cargar Nuevo Embarque", "✏️ Editar / Actualizar Embarque", "📦 Zona Almacén", "💼 Zona Administración"]
+        options = ["📋 Control de Embarques", "📊 Carga Masiva (Excel/CSV)", "➕ Cargar Nuevo Embarque", "✏️ Editar / Actualizar Embarque", "📦 Zona Almacén", "💼 Zona Administración"]
     elif role == "admon":  # Administración
         options = ["📋 Control de Embarques", "💼 Zona Administración"]
     elif role == "almacen":  # Almacén
@@ -133,9 +132,105 @@ else:
             df_display.columns = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
             st.dataframe(df_display, use_container_width=True)
 
-    # --- VISTA 2: REGISTRO DE EMBARQUES (COMPRAS) ---
+    # --- VISTA NUEVA: CARGA MASIVA EXCEL / CSV (SÓLO COMPRAS) ---
+    elif menu == "📊 Carga Masiva (Excel/CSV)":
+        st.title("📊 Carga Masiva de Embarques")
+        st.caption("Actualiza o inserta múltiples embarques subiendo una hoja de cálculo.")
+
+        st.markdown("""
+        **Instrucciones para el archivo:**
+        Tu Excel o CSV debe contener las siguientes columnas (pueden ser en minúsculas o mayúsculas):
+        `num_invoice`, `num_bl`, `num_contenedor`, `naviera`, `fabricante`, `producto`, `origen`, `destino`, `eta`, `estatus`, `agente_carga`, `agente_aduanas`, `consignatario`.
+        """)
+
+        # Plantilla de descarga rápida para el usuario
+        sample_data = pd.DataFrame([{
+            "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
+            "naviera": "MSC", "fabricante": "Tech Corp", "producto": "Lámparas LED",
+            "origen": "China", "destino": "Venezuela", "eta": "2026-08-15",
+            "estatus": "En Tránsito", "agente_carga": "DHL", "agente_aduanas": "Aduanas C.A.",
+            "consignatario": "Industrias Orgatek"
+        }])
+        
+        csv_sample = sample_data.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Descargar Plantilla de Ejemplo (CSV)", csv_sample, "plantilla_embarques.csv", "text/csv")
+
+        st.markdown("---")
+        uploaded_file = st.file_uploader("Selecciona tu archivo Excel (.xlsx) o CSV", type=["xlsx", "csv"])
+
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    df_upload = pd.read_csv(uploaded_file)
+                else:
+                    df_upload = pd.read_excel(uploaded_file)
+
+                # Normalizar nombres de columnas a minúsculas
+                df_upload.columns = df_upload.columns.str.strip().str.lower()
+                
+                st.markdown("### Vista previa de los datos a importar:")
+                st.dataframe(df_upload.head(10), use_container_width=True)
+
+                if 'num_invoice' not in df_upload.columns:
+                    st.error("❌ El archivo debe contener obligatoriamente la columna `num_invoice`.")
+                else:
+                    if st.button("🚀 Procesar e Importar a la Base de Datos", type="primary"):
+                        c = conn.cursor()
+                        registros_actualizados = 0
+                        registros_nuevos = 0
+
+                        for _, row in df_upload.iterrows():
+                            invoice = str(row.get('num_invoice', '')).strip()
+                            if not invoice or invoice == 'nan':
+                                continue
+
+                            # Mapear valores del archivo
+                            bl = str(row.get('num_bl', '')) if pd.notna(row.get('num_bl')) else ''
+                            contenedor = str(row.get('num_contenedor', '')) if pd.notna(row.get('num_contenedor')) else ''
+                            naviera = str(row.get('naviera', '')) if pd.notna(row.get('naviera')) else ''
+                            fabricante = str(row.get('fabricante', '')) if pd.notna(row.get('fabricante')) else ''
+                            producto = str(row.get('producto', '')) if pd.notna(row.get('producto')) else ''
+                            origen = str(row.get('origen', 'China')) if pd.notna(row.get('origen')) else 'China'
+                            destino = str(row.get('destino', 'Venezuela')) if pd.notna(row.get('destino')) else 'Venezuela'
+                            eta = str(row.get('eta', '')) if pd.notna(row.get('eta')) else ''
+                            estatus = str(row.get('estatus', 'En Puerto Origen')) if pd.notna(row.get('estatus')) else 'En Puerto Origen'
+                            agente_carga = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) else ''
+                            agente_aduanas = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
+                            consignatario = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
+
+                            # Verificar si la invoice ya existe
+                            c.execute("SELECT id FROM embarques WHERE num_invoice = ?", (invoice,))
+                            exists = c.fetchone()
+
+                            if exists:
+                                # Actualizar registro existente
+                                c.execute('''
+                                    UPDATE embarques SET
+                                        num_bl = ?, num_contenedor = ?, naviera = ?, fabricante = ?,
+                                        producto = ?, origen = ?, destino = ?, eta = ?, estatus = ?,
+                                        agente_carga = ?, agente_aduanas = ?, consignatario = ?
+                                    WHERE num_invoice = ?
+                                ''', (bl, contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario, invoice))
+                                registros_actualizados += 1
+                            else:
+                                # Insertar registro nuevo
+                                c.execute('''
+                                    INSERT INTO embarques (
+                                        num_invoice, num_bl, num_contenedor, naviera, fabricante,
+                                        producto, origen, destino, eta, estatus, agente_carga,
+                                        agente_aduanas, consignatario
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ''', (invoice, bl, contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario))
+                                registros_nuevos += 1
+
+                        conn.commit()
+                        st.success(f"✅ Procesamiento completado: {registros_nuevos} embarques nuevos creados, {registros_actualizados} embarques actualizados.")
+            except Exception as e:
+                st.error(f"Error al leer el archivo: {e}")
+
+    # --- VISTA 2: REGISTRO MANUAL DE EMBARQUES (COMPRAS) ---
     elif menu == "➕ Cargar Nuevo Embarque":
-        st.title("➕ Registrar Nuevo Embarque")
+        st.title("➕ Registrar Nuevo Embarque Manual")
         
         with st.form("form_embarque", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
@@ -180,17 +275,20 @@ else:
                     p_bl = save_file(file_bl, num_invoice, "bl")
                     
                     c = conn.cursor()
-                    c.execute('''
-                        INSERT INTO embarques (
-                            origen, destino, fabricante, num_invoice, agente_carga,
-                            agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor,
-                            eta, estatus, path_packing, path_invoice, path_flete, path_bl
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (origen, destino, fabricante, num_invoice, agente_carga,
-                          agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor,
-                          str(eta), estatus, p_pack, p_inv, p_fle, p_bl))
-                    conn.commit()
-                    st.success(f"Embarque con Invoice {num_invoice} registrado exitosamente.")
+                    try:
+                        c.execute('''
+                            INSERT INTO embarques (
+                                origen, destino, fabricante, num_invoice, agente_carga,
+                                agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor,
+                                eta, estatus, path_packing, path_invoice, path_flete, path_bl
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (origen, destino, fabricante, num_invoice, agente_carga,
+                              agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor,
+                              str(eta), estatus, p_pack, p_inv, p_fle, p_bl))
+                        conn.commit()
+                        st.success(f"Embarque con Invoice {num_invoice} registrado exitosamente.")
+                    except sqlite3.IntegrityError:
+                        st.error(f"❌ La Invoice {num_invoice} ya existe en la base de datos.")
 
     # --- VISTA 3: EDITAR EMBARQUES (COMPRAS) ---
     elif menu == "✏️ Editar / Actualizar Embarque":
