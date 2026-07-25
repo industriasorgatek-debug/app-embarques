@@ -234,10 +234,20 @@ else:
                     return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
                 return ''
 
-            df_display = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status']].copy()
-            df_display.columns = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete']
+            # COLUMNAS A MOSTRAR: Si es Compras (admin) incluye 'Estado Flete', de lo contrario NO
+            if role == "admin":
+                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status']
+                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete']
+            else:
+                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
+                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
 
-            styled_df = df_display.style.map(highlight_status, subset=['Estatus']).map(highlight_flete, subset=['Estado Flete'])
+            df_display = df[cols_to_show].copy()
+            df_display.columns = cols_names
+
+            styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
+            if role == "admin":
+                styled_df = styled_df.map(highlight_flete, subset=['Estado Flete'])
 
             st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
             
@@ -259,14 +269,15 @@ else:
                 st.markdown("---")
                 st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
-                # ALERTA VISUAL DE FLETE PENDIENTE EN EL DETALLE
-                es_entregado = (str(row_data['estatus']).strip() == "Entregado")
-                tiene_pago_ff = selected_invoice in invoices_con_pago_ff
+                # ALERTA VISUAL DE FLETE PENDIENTE EN EL DETALLE (SOLO COMPRAS)
+                if role == "admin":
+                    es_entregado = (str(row_data['estatus']).strip() == "Entregado")
+                    tiene_pago_ff = selected_invoice in invoices_con_pago_ff
 
-                if not es_entregado and not tiene_pago_ff:
-                    st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
-                elif tiene_pago_ff:
-                    st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
+                    if not es_entregado and not tiene_pago_ff:
+                        st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
+                    elif tiene_pago_ff:
+                        st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
 
                 # 1. ROL ALMACÉN
                 if role == "almacen":
