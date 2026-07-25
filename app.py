@@ -142,8 +142,11 @@ else:
             if role == "admin":
                 st.info("💡 **Compras:** Puedes cambiar el estatus de cualquier embarque haciendo clic en el menú desplegable de la columna **Estatus** y luego pulsando en **Guardar Cambios de Estatus**.")
                 
+                # CORRECCIÓN AQUÍ: Se usó .map() en lugar de .applymap()
+                styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
+                
                 edited_df = st.data_editor(
-                    df_display.style.applymap(highlight_status, subset=['Estatus']),
+                    styled_df,
                     column_config={
                         "Estatus": st.column_config.SelectboxColumn(
                             "Estatus",
@@ -178,7 +181,7 @@ else:
 
             # VISTA SOLO LECTURA (Almacén / Administración)
             else:
-                styled_df = df_display.style.applymap(highlight_status, subset=['Estatus'])
+                styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     # --- VISTA 2: CARGA MASIVA EXCEL / CSV ---
