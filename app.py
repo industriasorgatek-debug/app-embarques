@@ -124,14 +124,15 @@ else:
         if df.empty:
             st.info("No hay embarques registrados aún.")
         else:
-            # Función para aplicar estilos a la columna Estatus
+            # Función optimizada para aplicar colores a la columna Estatus
             def highlight_status(val):
-                val_str = str(val).upper()
-                if val_str in ['ENTREGADO', 'RECIBIDO']:
-                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'  # Rosado / Red
-                elif 'TRANSITO' in val_str or 'NAVE' in val_str:
+                val_clean = str(val).upper().replace('Á', 'A').replace('É', 'E').replace('Í', 'I').replace('Ó', 'O').replace('Ú', 'U')
+                
+                if val_clean in ['ENTREGADO', 'RECIBIDO']:
+                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'  # Rosado / Rojo
+                elif 'TRANSITO' in val_clean or 'NAVE' in val_clean:
                     return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'  # Verde claro
-                elif 'ADUANA' in val_str:
+                elif 'ADUANA' in val_clean or 'ADUANAS' in val_clean:
                     return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'  # Amarillo / Naranja claro
                 return ''
 
@@ -142,7 +143,6 @@ else:
             if role == "admin":
                 st.info("💡 **Compras:** Puedes cambiar el estatus de cualquier embarque haciendo clic en el menú desplegable de la columna **Estatus** y luego pulsando en **Guardar Cambios de Estatus**.")
                 
-                # CORRECCIÓN AQUÍ: Se usó .map() en lugar de .applymap()
                 styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
                 
                 edited_df = st.data_editor(
