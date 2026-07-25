@@ -4,17 +4,16 @@ import pandas as pd
 import os
 
 # -------------------------------------------------------------
-# CONFIGURACIÓN DE CARPETAS (Adaptado para la Nube / GitHub)
+# CONFIGURACIÓN DE CARPETAS
 # -------------------------------------------------------------
-BASE_DIR = os.getcwd()  # Guarda en la carpeta actual del servidor
+BASE_DIR = os.getcwd()
 DOCS_DIR = os.path.join(BASE_DIR, 'documentos')
 DB_PATH = os.path.join(BASE_DIR, 'embarques.db')
 
-# Crear carpeta de documentos si no existe
 if not os.path.exists(DOCS_DIR):
     os.makedirs(DOCS_DIR)
 
-# Configuración de Códigos de Acceso (PINs)
+# PINs de Acceso
 PINS = {
     "1212": {"dept": "Compras", "role": "admin"},
     "1010": {"dept": "Administración", "role": "admon"},
@@ -22,9 +21,9 @@ PINS = {
 }
 
 NAVIERAS = ["CMA CGM", "HAPAG-LLOYD", "MAERSK", "ONE", "MSC", "COSCO", "EVERGREEN", "OTRO"]
-ESTATUS_LISTA = ["En Puerto Origen", "En Tránsito", "En Aduana", "En Almacén", "Entregado"]
+ESTATUS_LISTA = ["En Puerto Origen", "En Tránsito", "En Aduana", "En Almacén", "Entregado", "RECIBIDO"]
 
-# Inicializar Base de Datos y migrar si es necesario
+# Inicializar Base de Datos
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -38,18 +37,16 @@ def init_db():
             path_packing TEXT, path_invoice TEXT, path_flete TEXT, path_bl TEXT
         )
     ''')
-    
     c.execute("PRAGMA table_info(embarques)")
     columns = [column[1] for column in c.fetchall()]
     if 'naviera' not in columns:
         c.execute("ALTER TABLE embarques ADD COLUMN naviera TEXT")
-        
     conn.commit()
     conn.close()
 
 init_db()
 
-# Guardar archivo PDF/Excel adjunto
+# Función para guardar archivos
 def save_file(file, num_invoice, doc_type):
     if file is None:
         return None
@@ -64,7 +61,6 @@ def save_file(file, num_invoice, doc_type):
 # Configuración visual
 st.set_page_config(page_title="Control de Embarques", layout="wide")
 
-# Estado de sesión
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "user_role" not in st.session_state:
@@ -72,15 +68,15 @@ if "user_role" not in st.session_state:
 if "user_dept" not in st.session_state:
     st.session_state.user_dept = None
 
-# --- PANTALLA PRINCIPAL DE LOGIN ---
+# --- PANTALLA LOGIN ---
 if not st.session_state.authenticated:
     st.markdown("<h1 style='text-align: center;'>🚢 Sistema de Control de Embarques</h1>", unsafe_allow_html=True)
-    st.markdown("<h4 style='text-align: center; color: gray;'>Por favor ingrese su PIN de acceso departamental</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align: center; color: gray;'>Ingrese su PIN de acceso departamental</h4>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         with st.form("login_form"):
-            pin_input = st.text_input("PIN de Acceso", type="password", max_chars=4, help="Ingrese su código de 4 dígitos")
+            pin_input = st.text_input("PIN de Acceso", type="password", max_chars=4)
             submit_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
             
             if submit_login:
@@ -90,9 +86,9 @@ if not st.session_state.authenticated:
                     st.session_state.user_dept = PINS[pin_input]["dept"]
                     st.rerun()
                 else:
-                    st.error("❌ PIN incorrecto. Verifique con su departamento.")
+                    st.error("❌ PIN incorrecto.")
 
-# --- PANTALLA DENTRO DEL SISTEMA (AUTENTICADO) ---
+# --- PANTALLA SISTEMA ---
 else:
     st.sidebar.title("🚢 Menú Principal")
     st.sidebar.markdown(f"**Usuario:** {st.session_state.user_dept}")
@@ -102,9 +98,9 @@ else:
     
     if role == "admin":  # Compras
         options = ["📋 Control de Embarques", "📊 Carga Masiva (Excel/CSV)", "➕ Cargar Nuevo Embarque", "✏️ Editar / Actualizar Embarque", "📦 Zona Almacén", "💼 Zona Administración"]
-    elif role == "admon":  # Administración
+    elif role == "admon":
         options = ["📋 Control de Embarques", "💼 Zona Administración"]
-    elif role == "almacen":  # Almacén
+    elif role == "almacen":
         options = ["📋 Control de Embarques", "📦 Zona Almacén"]
         
     menu = st.sidebar.radio("Navegación", options)
@@ -118,7 +114,7 @@ else:
 
     conn = sqlite3.connect(DB_PATH)
 
-    # --- VISTA 1: CONTROL DE EMBARQUES (GENERAL) ---
+    # --- VISTA 1: CONTROL DE EMBARQUES ---
     if menu == "📋 Control de Embarques":
         st.title("📋 Control General de Embarques")
         st.caption("Visualización en tiempo real del estatus de la carga")
@@ -126,24 +122,74 @@ else:
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
         
         if df.empty:
-            st.info("No hay embarques registrados aún en la base de datos.")
+            st.info("No hay embarques registrados aún.")
         else:
+            # Función para aplicar estilos a la columna Estatus
+            def highlight_status(val):
+                val_str = str(val).upper()
+                if val_str in ['ENTREGADO', 'RECIBIDO']:
+                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'  # Rosado / Red
+                elif 'TRANSITO' in val_str or 'NAVE' in val_str:
+                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'  # Verde claro
+                elif 'ADUANA' in val_str:
+                    return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'  # Amarillo / Naranja claro
+                return ''
+
             df_display = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']].copy()
             df_display.columns = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
-            st.dataframe(df_display, use_container_width=True)
 
-    # --- VISTA NUEVA: CARGA MASIVA EXCEL / CSV (SÓLO COMPRAS) ---
+            # VISTA PARA COMPRAS (Edición interactiva de Estatus)
+            if role == "admin":
+                st.info("💡 **Compras:** Puedes cambiar el estatus de cualquier embarque haciendo clic en el menú desplegable de la columna **Estatus** y luego pulsando en **Guardar Cambios de Estatus**.")
+                
+                edited_df = st.data_editor(
+                    df_display.style.applymap(highlight_status, subset=['Estatus']),
+                    column_config={
+                        "Estatus": st.column_config.SelectboxColumn(
+                            "Estatus",
+                            help="Selecciona el nuevo estatus",
+                            options=ESTATUS_LISTA,
+                            required=True,
+                        ),
+                        "N° Invoice": st.column_config.Column(disabled=True),
+                        "Contenedor": st.column_config.Column(disabled=True),
+                        "N° BL": st.column_config.Column(disabled=True),
+                        "Línea Naviera": st.column_config.Column(disabled=True),
+                        "Fabricante": st.column_config.Column(disabled=True),
+                        "Producto": st.column_config.Column(disabled=True),
+                        "Origen": st.column_config.Column(disabled=True),
+                        "Destino": st.column_config.Column(disabled=True),
+                        "ETA (Arribo)": st.column_config.Column(disabled=True),
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                    key="editor_estatus"
+                )
+
+                if st.button("💾 Guardar Cambios de Estatus", type="primary"):
+                    c = conn.cursor()
+                    for idx, row in edited_df.iterrows():
+                        inv = row['N° Invoice']
+                        nuevo_estatus = row['Estatus']
+                        c.execute("UPDATE embarques SET estatus = ? WHERE num_invoice = ?", (nuevo_estatus, inv))
+                    conn.commit()
+                    st.success("✅ ¡Estatus actualizados correctamente en la base de datos!")
+                    st.rerun()
+
+            # VISTA SOLO LECTURA (Almacén / Administración)
+            else:
+                styled_df = df_display.style.applymap(highlight_status, subset=['Estatus'])
+                st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+    # --- VISTA 2: CARGA MASIVA EXCEL / CSV ---
     elif menu == "📊 Carga Masiva (Excel/CSV)":
         st.title("📊 Carga Masiva de Embarques")
         st.caption("Actualiza o inserta múltiples embarques subiendo una hoja de cálculo.")
 
         st.markdown("""
-        **Instrucciones para el archivo:**
-        Tu Excel o CSV debe contener las siguientes columnas (pueden ser en minúsculas o mayúsculas):
-        `num_invoice`, `num_bl`, `num_contenedor`, `naviera`, `fabricante`, `producto`, `origen`, `destino`, `eta`, `estatus`, `agente_carga`, `agente_aduanas`, `consignatario`.
+        **Columnas soportadas:** `num_invoice` (o `INVOICE`), `num_bl`, `num_contenedor`, `naviera`, `fabricante` (o `EMPRESA`), `producto`, `origen`, `destino`, `eta` (o `ESTIMADO`), `estatus`, `agente_carga` (o `AGENTE`), `agente_aduanas` (o `AG ADUANA`), `consignatario` (o `CONSIGNEE`).
         """)
 
-        # Plantilla de descarga rápida para el usuario
         sample_data = pd.DataFrame([{
             "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
             "naviera": "MSC", "fabricante": "Tech Corp", "producto": "Lámparas LED",
@@ -165,14 +211,20 @@ else:
                 else:
                     df_upload = pd.read_excel(uploaded_file)
 
-                # Normalizar nombres de columnas a minúsculas
+                # Mapeo flexible de nombres de columnas
                 df_upload.columns = df_upload.columns.str.strip().str.lower()
-                
+                col_map = {
+                    'invoice': 'num_invoice', 'empresa': 'fabricante', 'agente': 'agente_carga',
+                    'ag aduana': 'agente_aduanas', 'consignee': 'consignatario', 'estimado': 'eta',
+                    'org /bl / booking': 'num_bl'
+                }
+                df_upload.rename(columns=col_map, inplace=True)
+
                 st.markdown("### Vista previa de los datos a importar:")
                 st.dataframe(df_upload.head(10), use_container_width=True)
 
                 if 'num_invoice' not in df_upload.columns:
-                    st.error("❌ El archivo debe contener obligatoriamente la columna `num_invoice`.")
+                    st.error("❌ El archivo debe contener obligatoriamente la columna `num_invoice` o `INVOICE`.")
                 else:
                     if st.button("🚀 Procesar e Importar a la Base de Datos", type="primary"):
                         c = conn.cursor()
@@ -184,7 +236,6 @@ else:
                             if not invoice or invoice == 'nan':
                                 continue
 
-                            # Mapear valores del archivo
                             bl = str(row.get('num_bl', '')) if pd.notna(row.get('num_bl')) else ''
                             contenedor = str(row.get('num_contenedor', '')) if pd.notna(row.get('num_contenedor')) else ''
                             naviera = str(row.get('naviera', '')) if pd.notna(row.get('naviera')) else ''
@@ -198,12 +249,10 @@ else:
                             agente_aduanas = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
                             consignatario = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
 
-                            # Verificar si la invoice ya existe
                             c.execute("SELECT id FROM embarques WHERE num_invoice = ?", (invoice,))
                             exists = c.fetchone()
 
                             if exists:
-                                # Actualizar registro existente
                                 c.execute('''
                                     UPDATE embarques SET
                                         num_bl = ?, num_contenedor = ?, naviera = ?, fabricante = ?,
@@ -213,7 +262,6 @@ else:
                                 ''', (bl, contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario, invoice))
                                 registros_actualizados += 1
                             else:
-                                # Insertar registro nuevo
                                 c.execute('''
                                     INSERT INTO embarques (
                                         num_invoice, num_bl, num_contenedor, naviera, fabricante,
@@ -224,11 +272,11 @@ else:
                                 registros_nuevos += 1
 
                         conn.commit()
-                        st.success(f"✅ Procesamiento completado: {registros_nuevos} embarques nuevos creados, {registros_actualizados} embarques actualizados.")
+                        st.success(f"✅ Procesamiento completado: {registros_nuevos} embarques creados, {registros_actualizados} actualizados.")
             except Exception as e:
                 st.error(f"Error al leer el archivo: {e}")
 
-    # --- VISTA 2: REGISTRO MANUAL DE EMBARQUES (COMPRAS) ---
+    # --- VISTA 3: REGISTRO MANUAL ---
     elif menu == "➕ Cargar Nuevo Embarque":
         st.title("➕ Registrar Nuevo Embarque Manual")
         
@@ -290,10 +338,9 @@ else:
                     except sqlite3.IntegrityError:
                         st.error(f"❌ La Invoice {num_invoice} ya existe en la base de datos.")
 
-    # --- VISTA 3: EDITAR EMBARQUES (COMPRAS) ---
+    # --- VISTA 4: EDITAR EMBARQUES ---
     elif menu == "✏️ Editar / Actualizar Embarque":
         st.title("✏️ Editar Embarque Existente")
-        
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
         
         if df.empty:
@@ -367,7 +414,7 @@ else:
                     conn.commit()
                     st.success(f"✅ ¡Embarque Invoice {selected_invoice} actualizado con éxito!")
 
-    # --- VISTA 4: ZONA ALMACÉN ---
+    # --- VISTA 5: ZONA ALMACÉN ---
     elif menu == "📦 Zona Almacén":
         st.title("📦 Zona Almacén - Descarga de Packing Lists")
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
@@ -391,7 +438,7 @@ else:
             else:
                 st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
-    # --- VISTA 5: ZONA ADMINISTRACIÓN ---
+    # --- VISTA 6: ZONA ADMINISTRACIÓN ---
     elif menu == "💼 Zona Administración":
         st.title("💼 Zona Administración - Expedientes de Carga")
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
