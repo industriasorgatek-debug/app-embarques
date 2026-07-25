@@ -206,7 +206,7 @@ def generar_pdf_embarque(row_data, df_pagos):
     elements.append(t2)
     elements.append(Spacer(1, 10))
 
-    # Módulo Financiero: RESUMEN FÁBRICA Y FLETE
+    # Módulo Financiero Separado en 2 Cuadros Claros
     elements.append(Paragraph("💰 Resumen Financiero (Fábrica y Flete)", subtitle_style))
     elements.append(Spacer(1, 4))
 
@@ -228,26 +228,38 @@ def generar_pdf_embarque(row_data, df_pagos):
     else:
         estado_flete_str = "⚠️ PENDIENTE FLETE"
 
-    data_finanzas = [
+    # 1. Tabla Resumen Fábrica (Ancho total 520px)
+    data_fabrica = [
         [Paragraph("<b>FÁBRICA — Factura:</b>", body_style), f"${monto_factura:,.2f}",
-         Paragraph("<b>Abonado:</b>", body_style), f"${monto_abonado_fabrica:,.2f}",
-         Paragraph("<b>Saldo Pendiente:</b>", body_style), f"${saldo_pendiente_fabrica:,.2f}"],
-        
-        [Paragraph("<b>FLETE — Agente:</b>", body_style), str(row_data['agente_carga'] or 'N/A'),
-         Paragraph("<b>Estatus Flete:</b>", body_style), estado_flete_str,
-         Paragraph("<b>Total Pagado Flete:</b>", body_style), f"${monto_flete_pagado:,.2f}"]
+         Paragraph("<b>Total Abonado:</b>", body_style), f"${monto_abonado_fabrica:,.2f}",
+         Paragraph("<b>Saldo Pendiente:</b>", body_style), f"${saldo_pendiente_fabrica:,.2f}"]
     ]
-
-    t3 = Table(data_finanzas, colWidths=[100, 80, 80, 90, 90, 80])
-    t3.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E0F2FE')),
-        ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#FEF3C7')),
+    t_fabrica = Table(data_fabrica, colWidths=[120, 80, 100, 80, 100, 40])
+    t_fabrica.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#E0F2FE')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('TOPPADDING', (0,0), (-1,-1), 5),
         ('BOTTOMPADDING', (0,0), (-1,-1), 5),
     ]))
-    elements.append(t3)
+    elements.append(t_fabrica)
+    elements.append(Spacer(1, 4))
+
+    # 2. Tabla Resumen Flete (Ancho total 520px con espacio suficiente para el nombre)
+    data_flete = [
+        [Paragraph("<b>FLETE — Agente:</b>", body_style), Paragraph(f"<b>{row_data['agente_carga'] or 'N/A'}</b>", body_style),
+         Paragraph("<b>Estatus Flete:</b>", body_style), estado_flete_str,
+         Paragraph("<b>Pagado Flete:</b>", body_style), f"${monto_flete_pagado:,.2f}"]
+    ]
+    t_flete = Table(data_flete, colWidths=[110, 140, 90, 90, 90, 0])
+    t_flete.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#FEF3C7')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    elements.append(t_flete)
     elements.append(Spacer(1, 10))
 
     # Historial Unificado de Pagos (Fábrica + Freight Forwarder)
