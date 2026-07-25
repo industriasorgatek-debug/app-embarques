@@ -4,7 +4,7 @@ import pandas as pd
 import os
 
 # -------------------------------------------------------------
-# CONFIGURACIÓN DE CARPETAS
+# CONFIGURACIÓN DE CARPETAS Y BASE DE DATOS
 # -------------------------------------------------------------
 BASE_DIR = os.getcwd()
 DOCS_DIR = os.path.join(BASE_DIR, 'documentos')
@@ -23,7 +23,6 @@ PINS = {
 NAVIERAS = ["CMA CGM", "HAPAG-LLOYD", "MAERSK", "ONE", "MSC", "COSCO", "EVERGREEN", "OTRO"]
 ESTATUS_LISTA = ["En Puerto Origen", "En Tránsito", "En Aduana", "En Almacén", "Entregado", "RECIBIDO"]
 
-# Inicializar Base de Datos
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -46,7 +45,6 @@ def init_db():
 
 init_db()
 
-# Función para guardar archivos
 def save_file(file, num_invoice, doc_type):
     if file is None:
         return None
@@ -58,15 +56,20 @@ def save_file(file, num_invoice, doc_type):
         f.write(file.getbuffer())
     return filepath
 
-# Configuración visual
+# Configuración de página
 st.set_page_config(page_title="Control de Embarques", layout="wide")
 
+# Variables de Estado de Sesión
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "user_role" not in st.session_state:
     st.session_state.user_role = None
 if "user_dept" not in st.session_state:
     st.session_state.user_dept = None
+if "selected_menu" not in st.session_state:
+    st.session_state.selected_menu = "📋 Control de Embarques"
+if "invoice_to_edit" not in st.session_state:
+    st.session_state.invoice_to_edit = None
 
 # --- PANTALLA LOGIN ---
 if not st.session_state.authenticated:
@@ -94,7 +97,6 @@ else:
     st.sidebar.markdown(f"**Usuario:** {st.session_state.user_dept}")
     
     role = st.session_state.user_role
-    options = []
     
     if role == "admin":  # Compras
         options = ["📋 Control de Embarques", "📊 Carga Masiva (Excel/CSV)", "➕ Cargar Nuevo Embarque", "✏️ Editar / Actualizar Embarque", "📦 Zona Almacén", "💼 Zona Administración"]
@@ -102,14 +104,25 @@ else:
         options = ["📋 Control de Embarques", "💼 Zona Administración"]
     elif role == "almacen":
         options = ["📋 Control de Embarques", "📦 Zona Almacén"]
-        
-    menu = st.sidebar.radio("Navegación", options)
-    
+
+    # Sincronización del menú
+    if st.session_state.selected_menu not in options:
+        st.session_state.selected_menu = options[0]
+
+    menu = st.sidebar.radio(
+        "Navegación", 
+        options, 
+        index=options.index(st.session_state.selected_menu),
+        key="nav_radio"
+    )
+    st.session_state.selected_menu = menu
+
     st.sidebar.markdown("---")
     if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user_role = None
         st.session_state.user_dept = None
+        st.session_state.selected_menu = "📋 Control de Embarques"
         st.rerun()
 
     conn = sqlite3.connect(DB_PATH)
@@ -124,64 +137,45 @@ else:
         if df.empty:
             st.info("No hay embarques registrados aún.")
         else:
-            # Función optimizada para aplicar colores a la columna Estatus
             def highlight_status(val):
                 val_clean = str(val).upper().replace('Á', 'A').replace('É', 'E').replace('Í', 'I').replace('Ó', 'O').replace('Ú', 'U')
-                
                 if val_clean in ['ENTREGADO', 'RECIBIDO']:
-                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'  # Rosado / Rojo
+                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'
                 elif 'TRANSITO' in val_clean or 'NAVE' in val_clean:
-                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'  # Verde claro
+                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'
                 elif 'ADUANA' in val_clean or 'ADUANAS' in val_clean:
-                    return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'  # Amarillo / Naranja claro
+                    return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
                 return ''
 
             df_display = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']].copy()
             df_display.columns = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
 
-            # VISTA PARA COMPRAS (Edición interactiva de Estatus)
+            styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
+
             if role == "admin":
-                st.info("💡 **Compras:** Puedes cambiar el estatus de cualquier embarque haciendo clic en el menú desplegable de la columna **Estatus** y luego pulsando en **Guardar Cambios de Estatus**.")
+                st.info("💡 **Compras:** Haz clic sobre cualquier casilla o fila de la tabla para abrir el botón de acceso directo a edición.")
                 
-                styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
-                
-                edited_df = st.data_editor(
+                # Tabla interactiva con selección de fila
+                event = st.dataframe(
                     styled_df,
-                    column_config={
-                        "Estatus": st.column_config.SelectboxColumn(
-                            "Estatus",
-                            help="Selecciona el nuevo estatus",
-                            options=ESTATUS_LISTA,
-                            required=True,
-                        ),
-                        "N° Invoice": st.column_config.Column(disabled=True),
-                        "Contenedor": st.column_config.Column(disabled=True),
-                        "N° BL": st.column_config.Column(disabled=True),
-                        "Línea Naviera": st.column_config.Column(disabled=True),
-                        "Fabricante": st.column_config.Column(disabled=True),
-                        "Producto": st.column_config.Column(disabled=True),
-                        "Origen": st.column_config.Column(disabled=True),
-                        "Destino": st.column_config.Column(disabled=True),
-                        "ETA (Arribo)": st.column_config.Column(disabled=True),
-                    },
                     use_container_width=True,
                     hide_index=True,
-                    key="editor_estatus"
+                    on_select="rerun",
+                    selection_mode="single-row",
+                    key="tabla_interactiva"
                 )
 
-                if st.button("💾 Guardar Cambios de Estatus", type="primary"):
-                    c = conn.cursor()
-                    for idx, row in edited_df.iterrows():
-                        inv = row['N° Invoice']
-                        nuevo_estatus = row['Estatus']
-                        c.execute("UPDATE embarques SET estatus = ? WHERE num_invoice = ?", (nuevo_estatus, inv))
-                    conn.commit()
-                    st.success("✅ ¡Estatus actualizados correctamente en la base de datos!")
-                    st.rerun()
-
-            # VISTA SOLO LECTURA (Almacén / Administración)
+                selected_rows = event.selection.get("rows", [])
+                if selected_rows:
+                    row_idx = selected_rows[0]
+                    selected_invoice = df_display.iloc[row_idx]['N° Invoice']
+                    
+                    st.success(f"📌 Embarque seleccionado: **Invoice {selected_invoice}**")
+                    if st.button(f"✏️ Ir a Editar Embarque {selected_invoice}", type="primary"):
+                        st.session_state.invoice_to_edit = selected_invoice
+                        st.session_state.selected_menu = "✏️ Editar / Actualizar Embarque"
+                        st.rerun()
             else:
-                styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     # --- VISTA 2: CARGA MASIVA EXCEL / CSV ---
@@ -214,7 +208,6 @@ else:
                 else:
                     df_upload = pd.read_excel(uploaded_file)
 
-                # Mapeo flexible de nombres de columnas
                 df_upload.columns = df_upload.columns.str.strip().str.lower()
                 col_map = {
                     'invoice': 'num_invoice', 'empresa': 'fabricante', 'agente': 'agente_carga',
@@ -349,7 +342,14 @@ else:
         if df.empty:
             st.info("No hay embarques para editar.")
         else:
-            selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", df['num_invoice'].unique())
+            invoices_list = list(df['num_invoice'].unique())
+            
+            # Si venimos redirigidos desde el clic en la tabla
+            default_index = 0
+            if st.session_state.invoice_to_edit and st.session_state.invoice_to_edit in invoices_list:
+                default_index = invoices_list.index(st.session_state.invoice_to_edit)
+            
+            selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", invoices_list, index=default_index)
             row = df[df['num_invoice'] == selected_invoice].iloc[0]
             
             with st.form("form_editar_embarque"):
