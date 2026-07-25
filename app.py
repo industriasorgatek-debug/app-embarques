@@ -23,7 +23,6 @@ PINS = {
 
 NAVIERAS = ["CMA CGM", "HAPAG-LLOYD", "MAERSK", "ONE", "MSC", "COSCO", "EVERGREEN", "OTRO"]
 
-# NUEVA LISTA OFICIAL DE ESTATUS
 ESTATUS_LISTA = [
     "En Producción",
     "En POL",
@@ -64,6 +63,15 @@ def save_file(file, num_invoice, doc_type):
     with open(filepath, "wb") as f:
         f.write(file.getbuffer())
     return filepath
+
+# Función para validar rutas de archivos de forma 100% segura (evita TypeError)
+def has_valid_file(path_val):
+    if pd.isna(path_val) or path_val is None:
+        return False
+    path_str = str(path_val).strip()
+    if path_str in ['', 'None', 'nan', 'NaT']:
+        return False
+    return os.path.exists(path_str)
 
 # Función para parsear fechas de forma 100% segura
 def safe_parse_date(val):
@@ -146,16 +154,14 @@ else:
         if df.empty:
             st.info("No hay embarques registrados aún.")
         else:
-            # LÓGICA DE COLORES SEGÚN ESTATUS SOLICITADO
             def highlight_status(val):
                 val_clean = str(val).strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
                 if val_clean == 'entregado':
-                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'  # Rojo
+                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'
                 elif 'transito' in val_clean:
-                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'  # Verde
+                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'
                 elif 'aduana' in val_clean:
-                    return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'  # Amarillo
-                # En Producción y En POL permanecen blancos (sin estilo adicional)
+                    return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
                 return ''
 
             df_display = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']].copy()
@@ -184,12 +190,10 @@ else:
                     if st.button(f"✏️ Desplegar Formulario de Edición ({selected_invoice})", type="primary"):
                         st.session_state.editing_invoice = selected_invoice
 
-                # MOSTRAR FORMULARIO DE EDICIÓN DIRECTAMENTE ABAJO
                 if st.session_state.editing_invoice:
                     st.markdown("---")
                     st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
                     
-                    # Cargar datos del embarque seleccionado
                     row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
                     
                     with st.form("form_quick_edit"):
@@ -212,8 +216,6 @@ else:
                             
                         with col3:
                             consignatario_e = st.text_input("Consignatario", value=str(row_data['consignatario'] or ''))
-                            
-                            # Parseo seguro de fecha
                             fecha_v = safe_parse_date(row_data['eta'])
                             eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
                             
@@ -447,8 +449,6 @@ else:
                     
                 with col3:
                     consignatario_edit = st.text_input("Consignatario", value=str(row['consignatario'] or ''))
-                    
-                    # Parseo seguro de fecha
                     fecha_val = safe_parse_date(row['eta'])
                     eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
                     
@@ -501,7 +501,8 @@ else:
             
             st.markdown(f"**Contenedor:** {row['num_contenedor']} | **ETA (Llegada):** {row['eta']} | **Producto:** {row['producto']}")
             
-            if row['path_packing'] and os.path.exists(row['path_packing']):
+            # Validación blindada
+            if has_valid_file(row['path_packing']):
                 with open(row['path_packing'], "rb") as f:
                     st.download_button(
                         label=f"⬇️ Descargar Packing List de Invoice {selected_invoice}",
@@ -535,7 +536,8 @@ else:
             
             st.markdown("#### Documentos Disponibles:")
             for label, path in docs:
-                if path and os.path.exists(path):
+                # Validación blindada
+                if has_valid_file(path):
                     with open(path, "rb") as f:
                         st.download_button(
                             label=f"⬇️ Descargar {label}",
