@@ -437,7 +437,9 @@ else:
 
                 # 1. ROL ALMACÉN
                 if role == "almacen":
-                    st.subheader("📦 Descarga de Packing List")
+                    st.subheader("📦 Gestión de Almacén")
+                    
+                    # Opción de Descarga
                     if has_valid_file(row_data['path_packing']):
                         with open(row_data['path_packing'], "rb") as f:
                             st.download_button(
@@ -450,6 +452,17 @@ else:
                             )
                     else:
                         st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
+
+                    # Lógica para cambiar estatus a "Entregado"
+                    if row_data['estatus'] == "En Aduanas":
+                        st.markdown("---")
+                        st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado'.")
+                        if st.button("✅ Marcar como ENTREGADO", type="primary"):
+                            c = conn.cursor()
+                            c.execute("UPDATE embarques SET estatus = 'Entregado' WHERE num_invoice = ?", (selected_invoice,))
+                            conn.commit()
+                            st.success("¡Estatus actualizado a 'Entregado' con éxito!")
+                            st.rerun()
 
                 # 2. ROL ADMINISTRACIÓN
                 elif role == "admon":
