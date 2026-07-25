@@ -50,15 +50,16 @@ TIPO_PAGO_LISTA = [
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Tabla de Embarques
+    # Tabla de Embarques con monto_factura
     c.execute('''
         CREATE TABLE IF NOT EXISTS embarques (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             origen TEXT, destino TEXT, fabricante TEXT,
             num_invoice TEXT UNIQUE, agente_carga TEXT, agente_aduanas TEXT,
             consignatario TEXT, producto TEXT, num_bl TEXT, naviera TEXT,
-            num_contenedor TEXT, eta DATE, estatus TEXT, monto_total_factura REAL DEFAULT 0.0,
-            path_packing TEXT, path_invoice TEXT, path_flete TEXT, path_bl TEXT
+            num_contenedor TEXT, eta DATE, estatus TEXT,
+            path_packing TEXT, path_invoice TEXT, path_flete TEXT, path_bl TEXT,
+            monto_factura REAL DEFAULT 0.0
         )
     ''')
     
@@ -77,13 +78,13 @@ def init_db():
         )
     ''')
 
-    # Migraciones automáticas de columnas faltantes
+    # Migración suave de columna monto_factura si la BD ya existía
     c.execute("PRAGMA table_info(embarques)")
     columns = [column[1] for column in c.fetchall()]
     if 'naviera' not in columns:
         c.execute("ALTER TABLE embarques ADD COLUMN naviera TEXT")
-    if 'monto_total_factura' not in columns:
-        c.execute("ALTER TABLE embarques ADD COLUMN monto_total_factura REAL DEFAULT 0.0")
+    if 'monto_factura' not in columns:
+        c.execute("ALTER TABLE embarques ADD COLUMN monto_factura REAL DEFAULT 0.0")
         
     conn.commit()
     conn.close()
@@ -197,17 +198,6 @@ else:
         if df.empty:
             st.info("No hay embarques registrados aún.")
         else:
-            # Calcular saldos para la vista general
-            df_pagos = pd.read_sql_query("SELECT num_invoice, SUM(monto) as total_abonado FROM pagos_embarques GROUP BY num_invoice", conn)
-            if not df_pagos.empty:
-                df = pd.merge(df, df_pagos, on='num_invoice', how='left')
-                df['total_abonado'] = df['total_abonado'].fillna(0.0)
-            else:
-                df['total_abonado'] = 0.0
-                
-            df['monto_total_factura'] = df['monto_total_factura'].fillna(0.0)
-            df['saldo_pendiente'] = df['monto_total_factura'] - df['total_abonado']
-
             def highlight_status(val):
                 val_clean = str(val).strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
                 if val_clean == 'entregado':
@@ -218,13 +208,12 @@ else:
                     return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
                 return ''
 
-            df_display = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'monto_total_factura', 'total_abonado', 'saldo_pendiente', 'eta', 'estatus']].copy()
-            df_display.columns = ['N° Invoice', 'Contenedor', 'N° BL', 'Naviera', 'Fabricante', 'Producto', 'Total Factura ($)', 'Abonado ($)', 'Pendiente ($)', 'ETA', 'Estatus']
+            df_display = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']].copy()
+            df_display.columns = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
 
-            styled_df = df_display.style.map(highlight_status, subset=['Estatus'])\
-                .format({'Total Factura ($)': '${:,.2f}', 'Abonado ($)': '${:,.2f}', 'Pendiente ($)': '${:,.2f}'})
+            styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
 
-            st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque.")
+            st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
             
             event = st.dataframe(
                 styled_df,
@@ -242,15 +231,7 @@ else:
                 row_data = df[df['num_invoice'] == selected_invoice].iloc[0]
 
                 st.markdown("---")
-                st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Fabricante: **{row_data['fabricante']}** | ETA: **{row_data['eta']}**")
-
-                # RESUMEN FINANCIERO DEL EMBARQUE SELECCIONADO
-                col_m1, col_m2, col_m3 = st.columns(3)
-                col_m1.metric("Monto Total Factura", f"${row_data['monto_total_factura']:,.2f} USD")
-                col_m2.metric("Total Abonado / Pagado", f"${row_data['total_abonado']:,.2f} USD")
-                col_m3.metric("Saldo Pendiente", f"${row_data['saldo_pendiente']:,.2f} USD", 
-                               delta=f"-${row_data['saldo_pendiente']:,.2f}" if row_data['saldo_pendiente'] > 0 else "PAGADO COMPLETO",
-                               delta_color="inverse" if row_data['saldo_pendiente'] > 0 else "normal")
+                st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
                 # 1. ROL ALMACÉN
                 if role == "almacen":
@@ -268,8 +249,8 @@ else:
                     else:
                         st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
-                # 2. ROL ADMINISTRACIÓN / COMPRAS
-                else:
+                # 2. ROL ADMINISTRACIÓN
+                elif role == "admon":
                     st.subheader("💼 Expediente Digital del Embarque")
                     docs = [
                         ("Packing List", row_data['path_packing']),
@@ -289,19 +270,61 @@ else:
                                         data=f,
                                         file_name=os.path.basename(path),
                                         mime="application/octet-stream",
-                                        key=f"main_doc_{label}_{selected_invoice}"
+                                        key=f"main_admon_{label}_{selected_invoice}"
                                     )
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
-                    # HISTORIAL DE PAGOS DEL EMBARQUE
-                    st.markdown("---")
-                    st.subheader(f"💵 Historial de Pagos y Abonos (Invoice: {selected_invoice})")
-                    df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
+                # 3. ROL COMPRAS (ADMIN) - INCLUYE RESUMEN FINANCIERO Y PAGOS
+                elif role == "admin":
+                    st.subheader("💼 Expediente Digital del Embarque")
+                    docs = [
+                        ("Packing List", row_data['path_packing']),
+                        ("Factura Comercial (Invoice)", row_data['path_invoice']),
+                        ("Factura de Flete", row_data['path_flete']),
+                        ("Bill of Lading (BL)", row_data['path_bl'])
+                    ]
                     
-                    if df_pagos_emb.empty:
-                        st.info("No se han registrado abonos o pagos para este embarque.")
+                    col_d1, col_d2 = st.columns(2)
+                    for idx, (label, path) in enumerate(docs):
+                        col_target = col_d1 if idx % 2 == 0 else col_d2
+                        with col_target:
+                            if has_valid_file(path):
+                                with open(path, "rb") as f:
+                                    st.download_button(
+                                        label=f"⬇️ Descargar {label}",
+                                        data=f,
+                                        file_name=os.path.basename(path),
+                                        mime="application/octet-stream",
+                                        key=f"main_compras_{label}_{selected_invoice}"
+                                    )
+                            else:
+                                st.caption(f"❌ {label}: No cargado")
+
+                    # SECCIÓN EXCLUSIVA DE BALANCES Y PAGOS (SOLO COMPRAS)
+                    st.markdown("---")
+                    st.subheader(f"💰 Balance y Pagos de la Factura ({selected_invoice})")
+                    
+                    df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
+                    monto_total_pagado = df_pagos_emb['monto'].sum() if not df_pagos_emb.empty else 0.0
+                    monto_factura = float(row_data['monto_factura']) if pd.notna(row_data['monto_factura']) else 0.0
+                    saldo_pendiente = monto_factura - monto_total_pagado
+
+                    # Métricas Financieras
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Monto Total Factura", f"${monto_factura:,.2f} USD")
+                    m2.metric("Total Abonado/Pagado", f"${monto_total_pagado:,.2f} USD")
+                    
+                    if saldo_pendiente <= 0 and monto_factura > 0:
+                        m3.metric("Saldo Pendiente", "$0.00 USD", delta="¡PAGADO COMPLETAMENTE!", delta_color="normal")
                     else:
+                        m3.metric("Saldo Pendiente Por Pagar", f"${saldo_pendiente:,.2f} USD", delta=f"-${saldo_pendiente:,.2f}", delta_color="inverse")
+
+                    # Lista de Abonos
+                    if df_pagos_emb.empty:
+                        st.info("No se han registrado pagos/abonos para este embarque.")
+                    else:
+                        st.markdown("##### Historial de Abonos:")
                         for idx, p_row in df_pagos_emb.iterrows():
                             c_p1, c_p2, c_p3, c_p4 = st.columns([2, 2, 2, 2])
                             c_p1.write(f"**Tipo:** {p_row['tipo_pago']}")
@@ -320,10 +343,9 @@ else:
                                     )
                             st.divider()
 
-                    if role == "admin":
-                        st.markdown("---")
-                        if st.button(f"✏️ Desplegar Formulario de Edición Rápida ({selected_invoice})", type="primary"):
-                            st.session_state.editing_invoice = selected_invoice
+                    st.markdown("---")
+                    if st.button(f"✏️ Desplegar Formulario de Edición Rápida ({selected_invoice})", type="primary"):
+                        st.session_state.editing_invoice = selected_invoice
 
             # Formulario de Edición Rápida
             if role == "admin" and st.session_state.editing_invoice:
@@ -335,21 +357,21 @@ else:
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         st.text_input("Número de Invoice", value=str(row_data['num_invoice']), disabled=True)
-                        monto_factura_e = st.number_input("Monto Total Factura ($ USD)", value=float(row_data['monto_total_factura'] or 0.0), min_value=0.0, step=100.0, format="%.2f")
                         fabricante_e = st.text_input("Fabricante / Proveedor", value=str(row_data['fabricante'] or ''))
+                        monto_factura_e = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row_data['monto_factura'] or 0.0), step=100.0, format="%.2f")
                         producto_e = st.text_input("Descripción del Producto", value=str(row_data['producto'] or ''))
                         origen_e = st.text_input("Origen", value=str(row_data['origen'] or ''))
+                        destino_e = st.text_input("Destino", value=str(row_data['destino'] or ''))
                         
                     with col2:
-                        destino_e = st.text_input("Destino", value=str(row_data['destino'] or ''))
                         num_bl_e = st.text_input("Número de BL", value=str(row_data['num_bl'] or ''))
                         nav_val = str(row_data['naviera']) if row_data['naviera'] in NAVIERAS else NAVIERAS[0]
                         naviera_e = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
                         num_contenedor_e = st.text_input("Número de Contenedor", value=str(row_data['num_contenedor'] or ''))
                         agente_carga_e = st.text_input("Agente de Carga", value=str(row_data['agente_carga'] or ''))
+                        agente_aduanas_e = st.text_input("Agente de Aduanas", value=str(row_data['agente_aduanas'] or ''))
                         
                     with col3:
-                        agente_aduanas_e = st.text_input("Agente de Aduanas", value=str(row_data['agente_aduanas'] or ''))
                         consignatario_e = st.text_input("Consignatario", value=str(row_data['consignatario'] or ''))
                         fecha_v = safe_parse_date(row_data['eta'])
                         eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
@@ -376,15 +398,16 @@ else:
                     c = conn.cursor()
                     c.execute('''
                         UPDATE embarques SET
-                            monto_total_factura = ?, origen = ?, destino = ?, fabricante = ?, agente_carga = ?,
+                            origen = ?, destino = ?, fabricante = ?, agente_carga = ?,
                             agente_aduanas = ?, consignatario = ?, producto = ?, num_bl = ?,
                             naviera = ?, num_contenedor = ?, eta = ?, estatus = ?,
-                            path_packing = ?, path_invoice = ?, path_flete = ?, path_bl = ?
+                            path_packing = ?, path_invoice = ?, path_flete = ?, path_bl = ?,
+                            monto_factura = ?
                         WHERE num_invoice = ?
-                    ''', (monto_factura_e, origen_e, destino_e, fabricante_e, agente_carga_e,
+                    ''', (origen_e, destino_e, fabricante_e, agente_carga_e,
                           agente_aduanas_e, consignatario_e, producto_e, num_bl_e,
                           naviera_e, num_contenedor_e, str(eta_e), estatus_e,
-                          p_pack, p_inv, p_fle, p_bl, st.session_state.editing_invoice))
+                          p_pack, p_inv, p_fle, p_bl, monto_factura_e, st.session_state.editing_invoice))
                     conn.commit()
                     st.session_state.editing_invoice = None
                     st.success("✅ ¡Embarque actualizado con éxito!")
@@ -393,37 +416,21 @@ else:
     # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
     elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
         st.title("💳 Registro y Control de Pagos Internacionales")
-        st.caption("Módulo exclusivo para Compras: Administra transferencias y calcula saldos pendientes por Invoice")
+        st.caption("Módulo exclusivo para Compras: Administra transferencias a Fábricas y Freight Forwarders")
 
-        df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, num_contenedor, monto_total_factura FROM embarques", conn)
+        df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, num_contenedor, monto_factura FROM embarques", conn)
         
         if df_emb.empty:
             st.warning("⚠️ Primero debe registrar al menos un embarque para asignarle pagos.")
         else:
-            invoices_map = {row['num_invoice']: f"{row['num_invoice']} - {row['fabricante']} (Total: ${row['monto_total_factura']:,.2f} USD)" for _, row in df_emb.iterrows()}
+            invoices_map = {row['num_invoice']: f"{row['num_invoice']} - {row['fabricante']} (Contenedor: {row['num_contenedor']})" for _, row in df_emb.iterrows()}
             
             st.subheader("➕ Registrar Nuevo Abono / Pago")
-            
-            selected_inv_key = st.selectbox("Seleccione Embarque / Invoice *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x])
-            
-            # Obtener resumen financiero de la Invoice seleccionada
-            df_cur_emb = df_emb[df_emb['num_invoice'] == selected_inv_key].iloc[0]
-            monto_total = float(df_cur_emb['monto_total_factura'] or 0.0)
-            
-            df_p_sum = pd.read_sql_query("SELECT SUM(monto) as abonado FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_inv_key,))
-            total_abonado = df_p_sum['abonado'].iloc[0] if pd.notna(df_p_sum['abonado'].iloc[0]) else 0.0
-            saldo_pendiente = monto_total - total_abonado
-
-            # Mostrar métricas rápidas de la Invoice seleccionada
-            c_m1, c_m2, c_m3 = st.columns(3)
-            c_m1.metric("Monto Total Factura", f"${monto_total:,.2f} USD")
-            c_m2.metric("Total Abonado a la Fecha", f"${total_abonado:,.2f} USD")
-            c_m3.metric("Falta por Pagar (Saldo)", f"${saldo_pendiente:,.2f} USD", delta_color="inverse")
-
             with st.form("form_registrar_pago", clear_on_submit=True):
                 col_p1, col_p2 = st.columns(2)
                 
                 with col_p1:
+                    selected_inv_key = st.selectbox("Seleccione Embarque / Invoice *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x])
                     tipo_pago = st.selectbox("Tipo de Pago *", TIPO_PAGO_LISTA)
                     banco_pago = st.selectbox("Banco / Plataforma de Origen *", BANCOS_LISTA)
                     monto_pago = st.number_input("Monto del Abono ($ USD) *", min_value=0.01, step=100.0, format="%.2f")
@@ -471,11 +478,11 @@ else:
     elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
         st.title("📊 Carga Masiva de Embarques")
         sample_data = pd.DataFrame([{
-            "num_invoice": "INV-1001", "monto_total_factura": 25000.0, "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
+            "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
             "naviera": "MSC", "fabricante": "Tech Corp", "producto": "Lámparas LED",
             "origen": "China", "destino": "Venezuela", "eta": "2026-08-15",
             "estatus": "En Tránsito", "agente_carga": "DHL", "agente_aduanas": "Aduanas C.A.",
-            "consignatario": "Industrias Orgatek"
+            "consignatario": "Industrias Orgatek", "monto_factura": 25000.00
         }])
         csv_sample = sample_data.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Descargar Plantilla de Ejemplo (CSV)", csv_sample, "plantilla_embarques.csv", "text/csv")
@@ -486,7 +493,7 @@ else:
             try:
                 df_upload = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
                 df_upload.columns = df_upload.columns.str.strip().str.lower()
-                col_map = {'invoice': 'num_invoice', 'monto': 'monto_total_factura', 'monto total': 'monto_total_factura', 'empresa': 'fabricante', 'agente': 'agente_carga', 'ag aduana': 'agente_aduanas', 'consignee': 'consignatario', 'estimado': 'eta', 'org /bl / booking': 'num_bl'}
+                col_map = {'invoice': 'num_invoice', 'empresa': 'fabricante', 'agente': 'agente_carga', 'ag aduana': 'agente_aduanas', 'consignee': 'consignatario', 'estimado': 'eta', 'org /bl / booking': 'num_bl', 'monto': 'monto_factura'}
                 df_upload.rename(columns=col_map, inplace=True)
                 st.dataframe(df_upload.head(10), use_container_width=True)
 
@@ -496,7 +503,6 @@ else:
                     for _, row in df_upload.iterrows():
                         inv = str(row.get('num_invoice', '')).strip()
                         if not inv or inv == 'nan': continue
-                        monto_fact = float(row.get('monto_total_factura', 0.0)) if pd.notna(row.get('monto_total_factura')) else 0.0
                         bl = str(row.get('num_bl', '')) if pd.notna(row.get('num_bl')) else ''
                         cont = str(row.get('num_contenedor', '')) if pd.notna(row.get('num_contenedor')) else ''
                         nav = str(row.get('naviera', '')) if pd.notna(row.get('naviera')) else ''
@@ -509,13 +515,14 @@ else:
                         ag_c = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) else ''
                         ag_a = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
                         cons = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
+                        monto = float(row.get('monto_factura', 0.0)) if pd.notna(row.get('monto_factura')) else 0.0
 
                         c.execute("SELECT id FROM embarques WHERE num_invoice = ?", (inv,))
                         if c.fetchone():
-                            c.execute('''UPDATE embarques SET monto_total_factura=?, num_bl=?, num_contenedor=?, naviera=?, fabricante=?, producto=?, origen=?, destino=?, eta=?, estatus=?, agente_carga=?, agente_aduanas=?, consignatario=? WHERE num_invoice=?''', (monto_fact, bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, inv))
+                            c.execute('''UPDATE embarques SET num_bl=?, num_contenedor=?, naviera=?, fabricante=?, producto=?, origen=?, destino=?, eta=?, estatus=?, agente_carga=?, agente_aduanas=?, consignatario=?, monto_factura=? WHERE num_invoice=?''', (bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, monto, inv))
                             n_up += 1
                         else:
-                            c.execute('''INSERT INTO embarques (num_invoice, monto_total_factura, num_bl, num_contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (inv, monto_fact, bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons))
+                            c.execute('''INSERT INTO embarques (num_invoice, num_bl, num_contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario, monto_factura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (inv, bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, monto))
                             n_new += 1
                     conn.commit()
                     st.success(f"✅ Éxito: {n_new} nuevos registros, {n_up} actualizados.")
@@ -529,18 +536,18 @@ else:
             col1, col2, col3 = st.columns(3)
             with col1:
                 num_invoice = st.text_input("Número de Invoice *")
-                monto_total_factura = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, step=100.0, format="%.2f")
                 fabricante = st.text_input("Fabricante / Proveedor")
+                monto_factura = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, step=100.0, format="%.2f")
                 producto = st.text_input("Descripción del Producto")
                 origen = st.text_input("Origen", value="China")
-            with col2:
                 destino = st.text_input("Destino", value="Venezuela")
+            with col2:
                 num_bl = st.text_input("Número de BL *")
                 naviera = st.selectbox("Línea Naviera", NAVIERAS)
                 num_contenedor = st.text_input("Número de Contenedor")
                 agente_carga = st.text_input("Agente de Carga Asignado")
-            with col3:
                 agente_aduanas = st.text_input("Agente de Aduanas")
+            with col3:
                 consignatario = st.text_input("Consignatario")
                 eta = st.date_input("Estimado de Arribo (ETA)")
                 estatus = st.selectbox("Estatus Inicial", ESTATUS_LISTA)
@@ -566,9 +573,9 @@ else:
                     
                     c = conn.cursor()
                     try:
-                        c.execute('''INSERT INTO embarques (origen, destino, fabricante, num_invoice, monto_total_factura, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, eta, estatus, path_packing, path_invoice, path_flete, path_bl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (origen, destino, fabricante, num_invoice, monto_total_factura, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, str(eta), estatus, p_pack, p_inv, p_fle, p_bl))
+                        c.execute('''INSERT INTO embarques (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, eta, estatus, path_packing, path_invoice, path_flete, path_bl, monto_factura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, str(eta), estatus, p_pack, p_inv, p_fle, p_bl, monto_factura))
                         conn.commit()
-                        st.success(f"Embarque Invoice {num_invoice} registrado con éxito.")
+                        st.success(f"Embarque Invoice {num_invoice} registrado.")
                     except sqlite3.IntegrityError:
                         st.error(f"❌ La Invoice {num_invoice} ya existe.")
 
@@ -587,19 +594,19 @@ else:
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     num_invoice_edit = st.text_input("Número de Invoice", value=str(row['num_invoice']), disabled=True)
-                    monto_factura_edit = st.number_input("Monto Total Factura ($ USD)", value=float(row['monto_total_factura'] or 0.0), min_value=0.0, step=100.0, format="%.2f")
                     fabricante_edit = st.text_input("Fabricante / Proveedor", value=str(row['fabricante'] or ''))
+                    monto_factura_edit = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row['monto_factura'] or 0.0), step=100.0, format="%.2f")
                     producto_edit = st.text_input("Descripción del Producto", value=str(row['producto'] or ''))
                     origen_edit = st.text_input("Origen", value=str(row['origen'] or ''))
-                with col2:
                     destino_edit = st.text_input("Destino", value=str(row['destino'] or ''))
+                with col2:
                     num_bl_edit = st.text_input("Número de BL", value=str(row['num_bl'] or ''))
                     nav_val = str(row['naviera']) if row['naviera'] in NAVIERAS else NAVIERAS[0]
                     naviera_edit = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
                     num_contenedor_edit = st.text_input("Número de Contenedor", value=str(row['num_contenedor'] or ''))
                     agente_carga_edit = st.text_input("Agente de Carga", value=str(row['agente_carga'] or ''))
-                with col3:
                     agente_aduanas_edit = st.text_input("Agente de Aduanas", value=str(row['agente_aduanas'] or ''))
+                with col3:
                     consignatario_edit = st.text_input("Consignatario", value=str(row['consignatario'] or ''))
                     fecha_val = safe_parse_date(row['eta'])
                     eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
@@ -623,7 +630,7 @@ else:
                     p_bl = save_file(new_file_bl, selected_invoice, "bl") or row['path_bl']
                     
                     c = conn.cursor()
-                    c.execute('''UPDATE embarques SET monto_total_factura=?, origen=?, destino=?, fabricante=?, agente_carga=?, agente_aduanas=?, consignatario=?, producto=?, num_bl=?, naviera=?, num_contenedor=?, eta=?, estatus=?, path_packing=?, path_invoice=?, path_flete=?, path_bl=? WHERE num_invoice=?''', (monto_factura_edit, origen_edit, destino_edit, fabricante_edit, agente_carga_edit, agente_aduanas_edit, consignatario_edit, producto_edit, num_bl_edit, naviera_edit, num_contenedor_edit, str(eta_edit), estatus_edit, p_pack, p_inv, p_fle, p_bl, selected_invoice))
+                    c.execute('''UPDATE embarques SET origen=?, destino=?, fabricante=?, agente_carga=?, agente_aduanas=?, consignatario=?, producto=?, num_bl=?, naviera=?, num_contenedor=?, eta=?, estatus=?, path_packing=?, path_invoice=?, path_flete=?, path_bl=?, monto_factura=? WHERE num_invoice=?''', (origen_edit, destino_edit, fabricante_edit, agente_carga_edit, agente_aduanas_edit, consignatario_edit, producto_edit, num_bl_edit, naviera_edit, num_contenedor_edit, str(eta_edit), estatus_edit, p_pack, p_inv, p_fle, p_bl, monto_factura_edit, selected_invoice))
                     conn.commit()
                     st.success(f"✅ Embarque Invoice {selected_invoice} actualizado.")
 
