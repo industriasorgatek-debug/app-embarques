@@ -9,10 +9,12 @@ from datetime import date
 # -------------------------------------------------------------
 BASE_DIR = os.getcwd()
 DOCS_DIR = os.path.join(BASE_DIR, 'documentos')
+PAYMENTS_DIR = os.path.join(BASE_DIR, 'comprobantes_pagos')
 DB_PATH = os.path.join(BASE_DIR, 'embarques.db')
 
-if not os.path.exists(DOCS_DIR):
-    os.makedirs(DOCS_DIR)
+for directory in [DOCS_DIR, PAYMENTS_DIR]:
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
 # PINs de Acceso
 PINS = {
@@ -31,9 +33,16 @@ ESTATUS_LISTA = [
     "Entregado"
 ]
 
+BANCOS_LISTA = [
+    "Mercantil", "Banesco", "Provincial", "BDV", 
+    "Bank of America", "Wells Fargo", "Chase", "Zelle", 
+    "Transferencia SWIFT", "Efectivo", "Otro"
+]
+
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    # Tabla Principal de Embarques
     c.execute('''
         CREATE TABLE IF NOT EXISTS embarques (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,6 +53,21 @@ def init_db():
             path_packing TEXT, path_invoice TEXT, path_flete TEXT, path_bl TEXT
         )
     ''')
+    
+    # Nueva Tabla de Pagos / Abonos
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS pagos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            num_invoice TEXT,
+            banco TEXT,
+            monto REAL,
+            fecha DATE,
+            num_referencia TEXT,
+            path_comprobante TEXT,
+            FOREIGN KEY (num_invoice) REFERENCES embarques(num_invoice)
+        )
+    ''')
+    
     c.execute("PRAGMA table_info(embarques)")
     columns = [column[1] for column in c.fetchall()]
     if 'naviera' not in columns:
@@ -53,13 +77,13 @@ def init_db():
 
 init_db()
 
-def save_file(file, num_invoice, doc_type):
+def save_file(file, num_invoice, doc_type, target_dir=DOCS_DIR):
     if file is None:
         return None
     ext = file.name.split('.')[-1]
     safe_invoice = "".join(c for c in num_invoice if c.isalnum() or c in ('-', '_'))
-    filename = f"INV_{safe_invoice}_{doc_type}.{ext}"
-    filepath = os.path.join(DOCS_DIR, filename)
+    filename = f"INV_{safe_invoice}_{doc_type}_{os.urandom(3).hex()}.{ext}"
+    filepath = os.path.join(target_dir, filename)
     with open(filepath, "wb") as f:
         f.write(file.getbuffer())
     return filepath
@@ -129,6 +153,7 @@ else:
     if role == "admin":  # Compras
         options = [
             "📋 Control de Embarques", 
+            "💳 Gestión de Pagos (Abonos)",
             "📊 Carga Masiva (Excel/CSV)", 
             "➕ Cargar Nuevo Embarque", 
             "✏️ Editar / Actualizar Embarque"
@@ -238,7 +263,7 @@ else:
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
-                # 3. ROL COMPRAS (ADMIN) -> Documentos completos + Botón de Edición
+                # 3. ROL COMPRAS (ADMIN) -> Documentos completos + Historial de Pagos + Botón de Edición
                 elif role == "admin":
                     st.subheader("💼 Expediente Digital del Embarque")
                     docs = [
@@ -263,6 +288,17 @@ else:
                                     )
                             else:
                                 st.caption(f"❌ {label}: No cargado")
+
+                    # RESUMEN RÁPIDO DE PAGOS EN COMPRAS
+                    df_pagos_inv = pd.read_sql_query("SELECT banco, monto, fecha, num_referencia, path_comprobante FROM pagos WHERE num_invoice = ?", conn, params=(selected_invoice,))
+                    st.markdown("---")
+                    st.subheader("💳 Resumen de Abonos / Pagos Registrados")
+                    if df_pagos_inv.empty:
+                        st.info("No hay pagos o abonos registrados para este embarque.")
+                    else:
+                        total_abonado = df_pagos_inv['monto'].sum()
+                        st.metric("💰 Total Abonado Hasta La Fecha", f"${total_abonado:,.2f} USD")
+                        st.dataframe(df_pagos_inv[['fecha', 'banco', 'monto', 'num_referencia']], use_container_width=True, hide_index=True)
 
                     st.markdown("---")
                     if st.button(f"✏️ Desplegar Formulario de Edición Rápida ({selected_invoice})", type="primary"):
@@ -335,7 +371,89 @@ else:
                     st.success("✅ ¡Embarque actualizado con éxito!")
                     st.rerun()
 
-    # --- VISTA 2: CARGA MASIVA EXCEL / CSV ---
+    # --- NUEVA VISTA SOLO COMPRAS: GESTIÓN DE PAGOS (ABONOS) ---
+    elif menu == "💳 Gestión de Pagos (Abonos)":
+        st.title("💳 Registro y Control de Abonos / Pagos")
+        st.caption("Registra pagos parciales durante la producción y adjunta comprobantes bancarios.")
+
+        df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, producto FROM embarques", conn)
+
+        if df_emb.empty:
+            st.info("Primero debes registrar al menos un embarque para asignarle pagos.")
+        else:
+            invoice_options = df_emb['num_invoice'].tolist()
+            selected_inv = st.selectbox("📌 Selecciona la Invoice / Embarque:", invoice_options)
+
+            # Información del embarque seleccionado
+            selected_info = df_emb[df_emb['num_invoice'] == selected_inv].iloc[0]
+            st.caption(f"Proveedor: **{selected_info['fabricante']}** | Producto: **{selected_info['producto']}**")
+
+            col_form, col_historial = st.columns([1, 1])
+
+            # FORMULARIO REGISTRO DE ABONO
+            with col_form:
+                st.markdown("### ➕ Registrar Nuevo Pago")
+                with st.form("form_pago", clear_on_submit=True):
+                    banco_pago = st.selectbox("Nombre del Banco / Método", BANCOS_LISTA)
+                    monto_pago = st.number_input("Monto del Abono ($ USD)", min_value=0.01, step=100.0, format="%.2f")
+                    fecha_pago = st.date_input("Fecha del Pago", value=date.today())
+                    ref_pago = st.text_input("Número de Referencia / Transacción")
+                    
+                    comprobante_file = st.file_uploader(
+                        "Comprobante de Pago", 
+                        type=["png", "jpg", "jpeg", "pdf"],
+                        help="Adjunta una foto o documento PDF del soporte bancario."
+                    )
+
+                    btn_pago = st.form_submit_button("💾 Guardar Abono", type="primary", use_container_width=True)
+
+                    if btn_pago:
+                        if not ref_pago:
+                            st.error("El número de referencia es obligatorio.")
+                        else:
+                            path_comp = save_file(comprobante_file, selected_inv, f"pago_{ref_pago}", target_dir=PAYMENTS_DIR)
+                            c = conn.cursor()
+                            c.execute('''
+                                INSERT INTO pagos (num_invoice, banco, monto, fecha, num_referencia, path_comprobante)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ''', (selected_inv, banco_pago, monto_pago, str(fecha_pago), ref_pago, path_comp))
+                            conn.commit()
+                            st.success(f"✅ ¡Pago de ${monto_pago:,.2f} registrado correctamente!")
+                            st.rerun()
+
+            # HISTORIAL DE PAGOS DE LA INVOICE SELECCIONADA
+            with col_historial:
+                st.markdown("### 📜 Historial de Abonos")
+                df_pagos = pd.read_sql_query("SELECT id, banco, monto, fecha, num_referencia, path_comprobante FROM pagos WHERE num_invoice = ?", conn, params=(selected_inv,))
+
+                if df_pagos.empty:
+                    st.info("No hay abonos registrados aún para esta Invoice.")
+                else:
+                    total_pagado = df_pagos['monto'].sum()
+                    st.metric(label="Total Acumulado Abonado", value=f"${total_pagado:,.2f} USD")
+
+                    for idx, row_p in df_pagos.iterrows():
+                        with st.expander(f"💵 Pago: ${row_p['monto']:,.2f} USD - {row_p['fecha']}"):
+                            st.write(f"**Banco:** {row_p['banco']}")
+                            st.write(f"**Referencia:** {row_p['num_referencia']}")
+                            
+                            p_comp = row_p['path_comprobante']
+                            if has_valid_file(p_comp):
+                                with open(p_comp, "rb") as f_comp:
+                                    st.download_button(
+                                        label="📄 Descargar Comprobante",
+                                        data=f_comp,
+                                        file_name=os.path.basename(p_comp),
+                                        mime="application/octet-stream",
+                                        key=f"dl_pago_{row_p['id']}"
+                                    )
+                                # Si es una imagen, mostrar una vista previa rápida
+                                if p_comp.lower().endswith(('png', 'jpg', 'jpeg')):
+                                    st.image(p_comp, caption="Vista previa del comprobante", use_container_width=True)
+                            else:
+                                st.caption("❌ Comprobante no adjuntado.")
+
+    # --- VISTA 3: CARGA MASIVA EXCEL / CSV ---
     elif menu == "📊 Carga Masiva (Excel/CSV)":
         st.title("📊 Carga Masiva de Embarques")
         st.caption("Actualiza o inserta múltiples embarques subiendo una hoja de cálculo.")
@@ -425,7 +543,7 @@ else:
             except Exception as e:
                 st.error(f"Error al leer el archivo: {e}")
 
-    # --- VISTA 3: REGISTRO MANUAL ---
+    # --- VISTA 4: REGISTRO MANUAL ---
     elif menu == "➕ Cargar Nuevo Embarque":
         st.title("➕ Registrar Nuevo Embarque Manual")
         
@@ -487,7 +605,7 @@ else:
                     except sqlite3.IntegrityError:
                         st.error(f"❌ La Invoice {num_invoice} ya existe en la base de datos.")
 
-    # --- VISTA 4: EDITAR EMBARQUES ---
+    # --- VISTA 5: EDITAR EMBARQUES ---
     elif menu == "✏️ Editar / Actualizar Embarque":
         st.title("✏️ Editar Embarque Existente")
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
