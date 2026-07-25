@@ -12,9 +12,9 @@ DOCS_DIR = os.path.join(BASE_DIR, 'documentos')
 PAYMENTS_DIR = os.path.join(BASE_DIR, 'comprobantes_pagos')
 DB_PATH = os.path.join(BASE_DIR, 'embarques.db')
 
-for directory in [DOCS_DIR, PAYMENTS_DIR]:
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+for folder in [DOCS_DIR, PAYMENTS_DIR]:
+    if not os.path.exists(folder):
+        os.makedirs(folder)
 
 # PINs de Acceso
 PINS = {
@@ -34,15 +34,23 @@ ESTATUS_LISTA = [
 ]
 
 BANCOS_LISTA = [
-    "Mercantil", "Banesco", "Provincial", "BDV", 
-    "Bank of America", "Wells Fargo", "Chase", "Zelle", 
-    "Transferencia SWIFT", "Efectivo", "Otro"
+    "SAFRA BANK",
+    "BANESCO PANAMA",
+    "BANESCO USA",
+    "SISTEMA SIMKIN",
+    "CONVENIO RMB",
+    "OTRO USD"
+]
+
+TIPO_PAGO_LISTA = [
+    "Pago a Fábrica",
+    "Pago a Freight Forwarder"
 ]
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Tabla Principal de Embarques
+    # Tabla de Embarques
     c.execute('''
         CREATE TABLE IF NOT EXISTS embarques (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,20 +62,21 @@ def init_db():
         )
     ''')
     
-    # Nueva Tabla de Pagos / Abonos
+    # Tabla Relacional de Pagos Parciales
     c.execute('''
-        CREATE TABLE IF NOT EXISTS pagos (
+        CREATE TABLE IF NOT EXISTS pagos_embarques (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             num_invoice TEXT,
+            tipo_pago TEXT,
             banco TEXT,
             monto REAL,
-            fecha DATE,
-            num_referencia TEXT,
+            fecha_pago DATE,
+            referencia TEXT,
             path_comprobante TEXT,
             FOREIGN KEY (num_invoice) REFERENCES embarques(num_invoice)
         )
     ''')
-    
+
     c.execute("PRAGMA table_info(embarques)")
     columns = [column[1] for column in c.fetchall()]
     if 'naviera' not in columns:
@@ -77,18 +86,20 @@ def init_db():
 
 init_db()
 
-def save_file(file, num_invoice, doc_type, target_dir=DOCS_DIR):
+def save_file(file, num_invoice, doc_type, is_payment=False):
     if file is None:
         return None
     ext = file.name.split('.')[-1]
     safe_invoice = "".join(c for c in num_invoice if c.isalnum() or c in ('-', '_'))
-    filename = f"INV_{safe_invoice}_{doc_type}_{os.urandom(3).hex()}.{ext}"
+    
+    target_dir = PAYMENTS_DIR if is_payment else DOCS_DIR
+    filename = f"PAY_{safe_invoice}_{doc_type}.{ext}" if is_payment else f"INV_{safe_invoice}_{doc_type}.{ext}"
     filepath = os.path.join(target_dir, filename)
+    
     with open(filepath, "wb") as f:
         f.write(file.getbuffer())
     return filepath
 
-# Función para validar rutas de archivos de forma 100% segura
 def has_valid_file(path_val):
     if pd.isna(path_val) or path_val is None:
         return False
@@ -97,7 +108,6 @@ def has_valid_file(path_val):
         return False
     return os.path.exists(path_str)
 
-# Función para parsear fechas de forma 100% segura
 def safe_parse_date(val):
     if pd.isna(val) or str(val).strip() in ['', 'nan', 'NaT', 'None']:
         return date.today()
@@ -153,7 +163,7 @@ else:
     if role == "admin":  # Compras
         options = [
             "📋 Control de Embarques", 
-            "💳 Gestión de Pagos (Abonos)",
+            "💳 Módulo de Pagos Internacionales",
             "📊 Carga Masiva (Excel/CSV)", 
             "➕ Cargar Nuevo Embarque", 
             "✏️ Editar / Actualizar Embarque"
@@ -173,7 +183,7 @@ else:
 
     conn = sqlite3.connect(DB_PATH)
 
-    # --- VISTA PRINCIPAL: CONTROL DE EMBARQUES ---
+    # --- VISTA 1: CONTROL DE EMBARQUES ---
     if menu == "📋 Control de Embarques":
         st.title("📋 Control General de Embarques")
         st.caption("Visualización interactiva y gestión de archivos en tiempo real")
@@ -198,9 +208,8 @@ else:
 
             styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
 
-            st.info("💡 **Tip:** Haz clic sobre cualquier fila de la tabla para seleccionar un embarque y desplegar sus opciones/documentos abajo.")
+            st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque.")
             
-            # Tabla Interactiva
             event = st.dataframe(
                 styled_df,
                 use_container_width=True,
@@ -219,9 +228,7 @@ else:
                 st.markdown("---")
                 st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
-                # ACCIONES DINÁMICAS POR ROL
-
-                # 1. ROL ALMACÉN -> Solo Packing List
+                # 1. ROL ALMACÉN
                 if role == "almacen":
                     st.subheader("📦 Descarga de Packing List")
                     if has_valid_file(row_data['path_packing']):
@@ -237,7 +244,7 @@ else:
                     else:
                         st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
-                # 2. ROL ADMINISTRACIÓN -> Descarga de todos los documentos
+                # 2. ROL ADMINISTRACIÓN
                 elif role == "admon":
                     st.subheader("💼 Expediente Digital del Embarque")
                     docs = [
@@ -263,7 +270,7 @@ else:
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
-                # 3. ROL COMPRAS (ADMIN) -> Documentos completos + Historial de Pagos + Botón de Edición
+                # 3. ROL COMPRAS (ADMIN)
                 elif role == "admin":
                     st.subheader("💼 Expediente Digital del Embarque")
                     docs = [
@@ -289,31 +296,47 @@ else:
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
-                    # RESUMEN RÁPIDO DE PAGOS EN COMPRAS
-                    df_pagos_inv = pd.read_sql_query("SELECT banco, monto, fecha, num_referencia, path_comprobante FROM pagos WHERE num_invoice = ?", conn, params=(selected_invoice,))
+                    # HISTORIAL DE PAGOS DEL EMBARQUE
                     st.markdown("---")
-                    st.subheader("💳 Resumen de Abonos / Pagos Registrados")
-                    if df_pagos_inv.empty:
-                        st.info("No hay pagos o abonos registrados para este embarque.")
+                    st.subheader(f"💵 Historial de Pagos Realizados (Invoice: {selected_invoice})")
+                    df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
+                    
+                    if df_pagos_emb.empty:
+                        st.info("No se han registrado pagos/abonos para este embarque.")
                     else:
-                        total_abonado = df_pagos_inv['monto'].sum()
-                        st.metric("💰 Total Abonado Hasta La Fecha", f"${total_abonado:,.2f} USD")
-                        st.dataframe(df_pagos_inv[['fecha', 'banco', 'monto', 'num_referencia']], use_container_width=True, hide_index=True)
+                        monto_total_pagado = df_pagos_emb['monto'].sum()
+                        st.metric("Monto Total Abonado/Pagado", f"${monto_total_pagado:,.2f} USD")
+                        
+                        for idx, p_row in df_pagos_emb.iterrows():
+                            c_p1, c_p2, c_p3, c_p4 = st.columns([2, 2, 2, 2])
+                            c_p1.write(f"**Tipo:** {p_row['tipo_pago']}")
+                            c_p2.write(f"**Banco:** {p_row['banco']}")
+                            c_p3.write(f"**Monto:** ${p_row['monto']:,.2f} USD")
+                            c_p4.write(f"**Ref:** {p_row['referencia']} ({p_row['fecha_pago']})")
+                            
+                            if has_valid_file(p_row['path_comprobante']):
+                                with open(p_row['path_comprobante'], "rb") as f_comp:
+                                    st.download_button(
+                                        label=f"📄 Comprobante Ref #{p_row['referencia']}",
+                                        data=f_comp,
+                                        file_name=os.path.basename(p_row['path_comprobante']),
+                                        mime="application/octet-stream",
+                                        key=f"dl_pago_{p_row['id']}"
+                                    )
+                            st.divider()
 
                     st.markdown("---")
                     if st.button(f"✏️ Desplegar Formulario de Edición Rápida ({selected_invoice})", type="primary"):
                         st.session_state.editing_invoice = selected_invoice
 
-            # Formulario de Edición para Compras (Admin)
+            # Formulario de Edición Rápida
             if role == "admin" and st.session_state.editing_invoice:
                 st.markdown("---")
                 st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
-                
                 row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
                 
                 with st.form("form_quick_edit"):
                     col1, col2, col3 = st.columns(3)
-                    
                     with col1:
                         st.text_input("Número de Invoice", value=str(row_data['num_invoice']), disabled=True)
                         fabricante_e = st.text_input("Fabricante / Proveedor", value=str(row_data['fabricante'] or ''))
@@ -333,7 +356,6 @@ else:
                         consignatario_e = st.text_input("Consignatario", value=str(row_data['consignatario'] or ''))
                         fecha_v = safe_parse_date(row_data['eta'])
                         eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
-                        
                         est_v = str(row_data['estatus']) if row_data['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
                         estatus_e = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_v))
                     
@@ -371,93 +393,70 @@ else:
                     st.success("✅ ¡Embarque actualizado con éxito!")
                     st.rerun()
 
-    # --- NUEVA VISTA SOLO COMPRAS: GESTIÓN DE PAGOS (ABONOS) ---
-    elif menu == "💳 Gestión de Pagos (Abonos)":
-        st.title("💳 Registro y Control de Abonos / Pagos")
-        st.caption("Registra pagos parciales durante la producción y adjunta comprobantes bancarios.")
+    # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
+    elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
+        st.title("💳 Registro y Control de Pagos Internacionales")
+        st.caption("Módulo exclusivo para Compras: Administra transferencias a Fábricas y Freight Forwarders")
 
-        df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, producto FROM embarques", conn)
-
+        df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, num_contenedor FROM embarques", conn)
+        
         if df_emb.empty:
-            st.info("Primero debes registrar al menos un embarque para asignarle pagos.")
+            st.warning("⚠️ Primero debe registrar al menos un embarque para asignarle pagos.")
         else:
-            invoice_options = df_emb['num_invoice'].tolist()
-            selected_inv = st.selectbox("📌 Selecciona la Invoice / Embarque:", invoice_options)
-
-            # Información del embarque seleccionado
-            selected_info = df_emb[df_emb['num_invoice'] == selected_inv].iloc[0]
-            st.caption(f"Proveedor: **{selected_info['fabricante']}** | Producto: **{selected_info['producto']}**")
-
-            col_form, col_historial = st.columns([1, 1])
-
-            # FORMULARIO REGISTRO DE ABONO
-            with col_form:
-                st.markdown("### ➕ Registrar Nuevo Pago")
-                with st.form("form_pago", clear_on_submit=True):
-                    banco_pago = st.selectbox("Nombre del Banco / Método", BANCOS_LISTA)
-                    monto_pago = st.number_input("Monto del Abono ($ USD)", min_value=0.01, step=100.0, format="%.2f")
-                    fecha_pago = st.date_input("Fecha del Pago", value=date.today())
-                    ref_pago = st.text_input("Número de Referencia / Transacción")
+            invoices_map = {row['num_invoice']: f"{row['num_invoice']} - {row['fabricante']} (Contenedor: {row['num_contenedor']})" for _, row in df_emb.iterrows()}
+            
+            st.subheader("➕ Registrar Nuevo Abono / Pago")
+            with st.form("form_registrar_pago", clear_on_submit=True):
+                col_p1, col_p2 = st.columns(2)
+                
+                with col_p1:
+                    selected_inv_key = st.selectbox("Seleccione Embarque / Invoice *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x])
+                    tipo_pago = st.selectbox("Tipo de Pago *", TIPO_PAGO_LISTA)
+                    banco_pago = st.selectbox("Banco / Plataforma de Origen *", BANCOS_LISTA)
+                    monto_pago = st.number_input("Monto del Abono ($ USD) *", min_value=0.01, step=100.0, format="%.2f")
                     
-                    comprobante_file = st.file_uploader(
-                        "Comprobante de Pago", 
-                        type=["png", "jpg", "jpeg", "pdf"],
-                        help="Adjunta una foto o documento PDF del soporte bancario."
+                with col_p2:
+                    fecha_pago = st.date_input("Fecha de Transferencia", value=date.today())
+                    num_ref = st.text_input("Número de Referencia / Comprobante *")
+                    file_comprobante = st.file_uploader(
+                        "Subir Comprobante (JPG, PNG, PDF) *", 
+                        type=["png", "jpg", "jpeg", "pdf"]
                     )
 
-                    btn_pago = st.form_submit_button("💾 Guardar Abono", type="primary", use_container_width=True)
+                submit_pago = st.form_submit_button("💳 Registrar Pago / Abono", type="primary", use_container_width=True)
 
-                    if btn_pago:
-                        if not ref_pago:
-                            st.error("El número de referencia es obligatorio.")
-                        else:
-                            path_comp = save_file(comprobante_file, selected_inv, f"pago_{ref_pago}", target_dir=PAYMENTS_DIR)
-                            c = conn.cursor()
-                            c.execute('''
-                                INSERT INTO pagos (num_invoice, banco, monto, fecha, num_referencia, path_comprobante)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                            ''', (selected_inv, banco_pago, monto_pago, str(fecha_pago), ref_pago, path_comp))
-                            conn.commit()
-                            st.success(f"✅ ¡Pago de ${monto_pago:,.2f} registrado correctamente!")
-                            st.rerun()
+                if submit_pago:
+                    if not num_ref or file_comprobante is None or monto_pago <= 0:
+                        st.error("❌ Todos los campos marcados con (*) son obligatorios, incluyendo el comprobante.")
+                    else:
+                        ref_clean = "".join(c for c in num_ref if c.isalnum() or c in ('-', '_'))
+                        file_path_pago = save_file(file_comprobante, f"{selected_inv_key}_{ref_clean}", "COMPROBANTE", is_payment=True)
+                        
+                        c = conn.cursor()
+                        c.execute('''
+                            INSERT INTO pagos_embarques (num_invoice, tipo_pago, banco, monto, fecha_pago, referencia, path_comprobante)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ''', (selected_inv_key, tipo_pago, banco_pago, monto_pago, str(fecha_pago), num_ref, file_path_pago))
+                        conn.commit()
+                        st.success(f"✅ Pago de ${monto_pago:,.2f} USD asignado con éxito a la Invoice {selected_inv_key}.")
+                        st.rerun()
 
-            # HISTORIAL DE PAGOS DE LA INVOICE SELECCIONADA
-            with col_historial:
-                st.markdown("### 📜 Historial de Abonos")
-                df_pagos = pd.read_sql_query("SELECT id, banco, monto, fecha, num_referencia, path_comprobante FROM pagos WHERE num_invoice = ?", conn, params=(selected_inv,))
+            st.markdown("---")
+            st.subheader("📊 Historial General de Pagos Registrados")
+            df_all_pagos = pd.read_sql_query("SELECT * FROM pagos_embarques ORDER BY id DESC", conn)
+            
+            if df_all_pagos.empty:
+                st.info("No se registra ningún pago en el sistema.")
+            else:
+                st.dataframe(
+                    df_all_pagos[['id', 'num_invoice', 'tipo_pago', 'banco', 'monto', 'fecha_pago', 'referencia']],
+                    use_container_width=True,
+                    hide_index=True
+                )
 
-                if df_pagos.empty:
-                    st.info("No hay abonos registrados aún para esta Invoice.")
-                else:
-                    total_pagado = df_pagos['monto'].sum()
-                    st.metric(label="Total Acumulado Abonado", value=f"${total_pagado:,.2f} USD")
-
-                    for idx, row_p in df_pagos.iterrows():
-                        with st.expander(f"💵 Pago: ${row_p['monto']:,.2f} USD - {row_p['fecha']}"):
-                            st.write(f"**Banco:** {row_p['banco']}")
-                            st.write(f"**Referencia:** {row_p['num_referencia']}")
-                            
-                            p_comp = row_p['path_comprobante']
-                            if has_valid_file(p_comp):
-                                with open(p_comp, "rb") as f_comp:
-                                    st.download_button(
-                                        label="📄 Descargar Comprobante",
-                                        data=f_comp,
-                                        file_name=os.path.basename(p_comp),
-                                        mime="application/octet-stream",
-                                        key=f"dl_pago_{row_p['id']}"
-                                    )
-                                # Si es una imagen, mostrar una vista previa rápida
-                                if p_comp.lower().endswith(('png', 'jpg', 'jpeg')):
-                                    st.image(p_comp, caption="Vista previa del comprobante", use_container_width=True)
-                            else:
-                                st.caption("❌ Comprobante no adjuntado.")
-
-    # --- VISTA 3: CARGA MASIVA EXCEL / CSV ---
-    elif menu == "📊 Carga Masiva (Excel/CSV)":
+    # --- VISTA 3: CARGA MASIVA ---
+    elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
         st.title("📊 Carga Masiva de Embarques")
-        st.caption("Actualiza o inserta múltiples embarques subiendo una hoja de cálculo.")
-
         sample_data = pd.DataFrame([{
             "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
             "naviera": "MSC", "fabricante": "Tech Corp", "producto": "Lámparas LED",
@@ -465,105 +464,67 @@ else:
             "estatus": "En Tránsito", "agente_carga": "DHL", "agente_aduanas": "Aduanas C.A.",
             "consignatario": "Industrias Orgatek"
         }])
-        
         csv_sample = sample_data.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Descargar Plantilla de Ejemplo (CSV)", csv_sample, "plantilla_embarques.csv", "text/csv")
-
         st.markdown("---")
         uploaded_file = st.file_uploader("Selecciona tu archivo Excel (.xlsx) o CSV", type=["xlsx", "csv"])
 
         if uploaded_file is not None:
             try:
-                if uploaded_file.name.endswith('.csv'):
-                    df_upload = pd.read_csv(uploaded_file)
-                else:
-                    df_upload = pd.read_excel(uploaded_file)
-
+                df_upload = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
                 df_upload.columns = df_upload.columns.str.strip().str.lower()
-                col_map = {
-                    'invoice': 'num_invoice', 'empresa': 'fabricante', 'agente': 'agente_carga',
-                    'ag aduana': 'agente_aduanas', 'consignee': 'consignatario', 'estimado': 'eta',
-                    'org /bl / booking': 'num_bl'
-                }
+                col_map = {'invoice': 'num_invoice', 'empresa': 'fabricante', 'agente': 'agente_carga', 'ag aduana': 'agente_aduanas', 'consignee': 'consignatario', 'estimado': 'eta', 'org /bl / booking': 'num_bl'}
                 df_upload.rename(columns=col_map, inplace=True)
-
-                st.markdown("### Vista previa de los datos a importar:")
                 st.dataframe(df_upload.head(10), use_container_width=True)
 
-                if 'num_invoice' not in df_upload.columns:
-                    st.error("❌ El archivo debe contener obligatoriamente la columna `num_invoice` o `INVOICE`.")
-                else:
-                    if st.button("🚀 Procesar e Importar a la Base de Datos", type="primary"):
-                        c = conn.cursor()
-                        registros_actualizados = 0
-                        registros_nuevos = 0
+                if 'num_invoice' in df_upload.columns and st.button("🚀 Procesar e Importar a Base de Datos", type="primary"):
+                    c = conn.cursor()
+                    n_up, n_new = 0, 0
+                    for _, row in df_upload.iterrows():
+                        inv = str(row.get('num_invoice', '')).strip()
+                        if not inv or inv == 'nan': continue
+                        bl = str(row.get('num_bl', '')) if pd.notna(row.get('num_bl')) else ''
+                        cont = str(row.get('num_contenedor', '')) if pd.notna(row.get('num_contenedor')) else ''
+                        nav = str(row.get('naviera', '')) if pd.notna(row.get('naviera')) else ''
+                        fab = str(row.get('fabricante', '')) if pd.notna(row.get('fabricante')) else ''
+                        prod = str(row.get('producto', '')) if pd.notna(row.get('producto')) else ''
+                        ori = str(row.get('origen', 'China')) if pd.notna(row.get('origen')) else 'China'
+                        des = str(row.get('destino', 'Venezuela')) if pd.notna(row.get('destino')) else 'Venezuela'
+                        eta = str(row.get('eta', '')) if pd.notna(row.get('eta')) else ''
+                        est = str(row.get('estatus', 'En Producción')) if pd.notna(row.get('estatus')) else 'En Producción'
+                        ag_c = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) else ''
+                        ag_a = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
+                        cons = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
 
-                        for _, row in df_upload.iterrows():
-                            invoice = str(row.get('num_invoice', '')).strip()
-                            if not invoice or invoice == 'nan':
-                                continue
-
-                            bl = str(row.get('num_bl', '')) if pd.notna(row.get('num_bl')) else ''
-                            contenedor = str(row.get('num_contenedor', '')) if pd.notna(row.get('num_contenedor')) else ''
-                            naviera = str(row.get('naviera', '')) if pd.notna(row.get('naviera')) else ''
-                            fabricante = str(row.get('fabricante', '')) if pd.notna(row.get('fabricante')) else ''
-                            producto = str(row.get('producto', '')) if pd.notna(row.get('producto')) else ''
-                            origen = str(row.get('origen', 'China')) if pd.notna(row.get('origen')) else 'China'
-                            destino = str(row.get('destino', 'Venezuela')) if pd.notna(row.get('destino')) else 'Venezuela'
-                            eta = str(row.get('eta', '')) if pd.notna(row.get('eta')) else ''
-                            estatus = str(row.get('estatus', 'En Producción')) if pd.notna(row.get('estatus')) else 'En Producción'
-                            agente_carga = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) else ''
-                            agente_aduanas = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
-                            consignatario = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
-
-                            c.execute("SELECT id FROM embarques WHERE num_invoice = ?", (invoice,))
-                            exists = c.fetchone()
-
-                            if exists:
-                                c.execute('''
-                                    UPDATE embarques SET
-                                        num_bl = ?, num_contenedor = ?, naviera = ?, fabricante = ?,
-                                        producto = ?, origen = ?, destino = ?, eta = ?, estatus = ?,
-                                        agente_carga = ?, agente_aduanas = ?, consignatario = ?
-                                    WHERE num_invoice = ?
-                                ''', (bl, contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario, invoice))
-                                registros_actualizados += 1
-                            else:
-                                c.execute('''
-                                    INSERT INTO embarques (
-                                        num_invoice, num_bl, num_contenedor, naviera, fabricante,
-                                        producto, origen, destino, eta, estatus, agente_carga,
-                                        agente_aduanas, consignatario
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                ''', (invoice, bl, contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario))
-                                registros_nuevos += 1
-
-                        conn.commit()
-                        st.success(f"✅ Procesamiento completado: {registros_nuevos} embarques creados, {registros_actualizados} actualizados.")
+                        c.execute("SELECT id FROM embarques WHERE num_invoice = ?", (inv,))
+                        if c.fetchone():
+                            c.execute('''UPDATE embarques SET num_bl=?, num_contenedor=?, naviera=?, fabricante=?, producto=?, origen=?, destino=?, eta=?, estatus=?, agente_carga=?, agente_aduanas=?, consignatario=? WHERE num_invoice=?''', (bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, inv))
+                            n_up += 1
+                        else:
+                            c.execute('''INSERT INTO embarques (num_invoice, num_bl, num_contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (inv, bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons))
+                            n_new += 1
+                    conn.commit()
+                    st.success(f"✅ Éxito: {n_new} nuevos registros, {n_up} actualizados.")
             except Exception as e:
-                st.error(f"Error al leer el archivo: {e}")
+                st.error(f"Error procesando archivo: {e}")
 
     # --- VISTA 4: REGISTRO MANUAL ---
-    elif menu == "➕ Cargar Nuevo Embarque":
+    elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
         st.title("➕ Registrar Nuevo Embarque Manual")
-        
         with st.form("form_embarque", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
-            
             with col1:
                 num_invoice = st.text_input("Número de Invoice *")
                 fabricante = st.text_input("Fabricante / Proveedor")
                 producto = st.text_input("Descripción del Producto")
                 origen = st.text_input("Origen", value="China")
                 destino = st.text_input("Destino", value="Venezuela")
-                
             with col2:
                 num_bl = st.text_input("Número de BL *")
                 naviera = st.selectbox("Línea Naviera", NAVIERAS)
                 num_contenedor = st.text_input("Número de Contenedor")
                 agente_carga = st.text_input("Agente de Carga Asignado")
                 agente_aduanas = st.text_input("Agente de Aduanas")
-                
             with col3:
                 consignatario = st.text_input("Consignatario")
                 eta = st.date_input("Estimado de Arribo (ETA)")
@@ -579,7 +540,6 @@ else:
                 file_bl = st.file_uploader("Documento BL", type=["pdf"])
                 
             submitted = st.form_submit_button("Guardar y Publicar Embarque")
-            
             if submitted:
                 if not num_invoice or not num_bl:
                     st.error("El N° de Invoice y N° de BL son obligatorios.")
@@ -591,25 +551,16 @@ else:
                     
                     c = conn.cursor()
                     try:
-                        c.execute('''
-                            INSERT INTO embarques (
-                                origen, destino, fabricante, num_invoice, agente_carga,
-                                agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor,
-                                eta, estatus, path_packing, path_invoice, path_flete, path_bl
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', (origen, destino, fabricante, num_invoice, agente_carga,
-                              agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor,
-                              str(eta), estatus, p_pack, p_inv, p_fle, p_bl))
+                        c.execute('''INSERT INTO embarques (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, eta, estatus, path_packing, path_invoice, path_flete, path_bl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, str(eta), estatus, p_pack, p_inv, p_fle, p_bl))
                         conn.commit()
-                        st.success(f"Embarque con Invoice {num_invoice} registrado exitosamente.")
+                        st.success(f"Embarque Invoice {num_invoice} registrado.")
                     except sqlite3.IntegrityError:
-                        st.error(f"❌ La Invoice {num_invoice} ya existe en la base de datos.")
+                        st.error(f"❌ La Invoice {num_invoice} ya existe.")
 
-    # --- VISTA 5: EDITAR EMBARQUES ---
-    elif menu == "✏️ Editar / Actualizar Embarque":
+    # --- VISTA 5: EDITAR EMBARQUE ---
+    elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
         st.title("✏️ Editar Embarque Existente")
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
-        
         if df.empty:
             st.info("No hay embarques para editar.")
         else:
@@ -619,14 +570,12 @@ else:
             
             with st.form("form_editar_embarque"):
                 col1, col2, col3 = st.columns(3)
-                
                 with col1:
                     num_invoice_edit = st.text_input("Número de Invoice", value=str(row['num_invoice']), disabled=True)
                     fabricante_edit = st.text_input("Fabricante / Proveedor", value=str(row['fabricante'] or ''))
                     producto_edit = st.text_input("Descripción del Producto", value=str(row['producto'] or ''))
                     origen_edit = st.text_input("Origen", value=str(row['origen'] or ''))
                     destino_edit = st.text_input("Destino", value=str(row['destino'] or ''))
-                    
                 with col2:
                     num_bl_edit = st.text_input("Número de BL", value=str(row['num_bl'] or ''))
                     nav_val = str(row['naviera']) if row['naviera'] in NAVIERAS else NAVIERAS[0]
@@ -634,16 +583,13 @@ else:
                     num_contenedor_edit = st.text_input("Número de Contenedor", value=str(row['num_contenedor'] or ''))
                     agente_carga_edit = st.text_input("Agente de Carga", value=str(row['agente_carga'] or ''))
                     agente_aduanas_edit = st.text_input("Agente de Aduanas", value=str(row['agente_aduanas'] or ''))
-                    
                 with col3:
                     consignatario_edit = st.text_input("Consignatario", value=str(row['consignatario'] or ''))
                     fecha_val = safe_parse_date(row['eta'])
                     eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
-                    
                     est_val = str(row['estatus']) if row['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
                     estatus_edit = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_val))
                 
-                st.markdown("---")
                 st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
                 col_f1, col_f2 = st.columns(2)
                 with col_f1:
@@ -654,7 +600,6 @@ else:
                     new_file_bl = st.file_uploader("Nuevo BL", type=["pdf"], key="edit_bl")
 
                 submit_edit = st.form_submit_button("💾 Guardar Cambios en Embarque")
-                
                 if submit_edit:
                     p_pack = save_file(new_file_packing, selected_invoice, "packing") or row['path_packing']
                     p_inv = save_file(new_file_invoice, selected_invoice, "invoice") or row['path_invoice']
@@ -662,18 +607,8 @@ else:
                     p_bl = save_file(new_file_bl, selected_invoice, "bl") or row['path_bl']
                     
                     c = conn.cursor()
-                    c.execute('''
-                        UPDATE embarques SET
-                            origen = ?, destino = ?, fabricante = ?, agente_carga = ?,
-                            agente_aduanas = ?, consignatario = ?, producto = ?, num_bl = ?,
-                            naviera = ?, num_contenedor = ?, eta = ?, estatus = ?,
-                            path_packing = ?, path_invoice = ?, path_flete = ?, path_bl = ?
-                        WHERE num_invoice = ?
-                    ''', (origen_edit, destino_edit, fabricante_edit, agente_carga_edit,
-                          agente_aduanas_edit, consignatario_edit, producto_edit, num_bl_edit,
-                          naviera_edit, num_contenedor_edit, str(eta_edit), estatus_edit,
-                          p_pack, p_inv, p_fle, p_bl, selected_invoice))
+                    c.execute('''UPDATE embarques SET origen=?, destino=?, fabricante=?, agente_carga=?, agente_aduanas=?, consignatario=?, producto=?, num_bl=?, naviera=?, num_contenedor=?, eta=?, estatus=?, path_packing=?, path_invoice=?, path_flete=?, path_bl=? WHERE num_invoice=?''', (origen_edit, destino_edit, fabricante_edit, agente_carga_edit, agente_aduanas_edit, consignatario_edit, producto_edit, num_bl_edit, naviera_edit, num_contenedor_edit, str(eta_edit), estatus_edit, p_pack, p_inv, p_fle, p_bl, selected_invoice))
                     conn.commit()
-                    st.success(f"✅ ¡Embarque Invoice {selected_invoice} actualizado con éxito!")
+                    st.success(f"✅ Embarque Invoice {selected_invoice} actualizado.")
 
     conn.close()
