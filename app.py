@@ -22,7 +22,15 @@ PINS = {
 }
 
 NAVIERAS = ["CMA CGM", "HAPAG-LLOYD", "MAERSK", "ONE", "MSC", "COSCO", "EVERGREEN", "OTRO"]
-ESTATUS_LISTA = ["En Puerto Origen", "En Tránsito", "En Aduana", "En Almacén", "Entregado", "RECIBIDO"]
+
+# NUEVA LISTA OFICIAL DE ESTATUS
+ESTATUS_LISTA = [
+    "En Producción",
+    "En POL",
+    "En Tránsito",
+    "En Aduanas",
+    "Entregado"
+]
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -138,14 +146,16 @@ else:
         if df.empty:
             st.info("No hay embarques registrados aún.")
         else:
+            # LÓGICA DE COLORES SEGÚN ESTATUS SOLICITADO
             def highlight_status(val):
-                val_clean = str(val).upper().replace('Á', 'A').replace('É', 'E').replace('Í', 'I').replace('Ó', 'O').replace('Ú', 'U')
-                if val_clean in ['ENTREGADO', 'RECIBIDO']:
-                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'
-                elif 'TRANSITO' in val_clean or 'NAVE' in val_clean:
-                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'
-                elif 'ADUANA' in val_clean or 'ADUANAS' in val_clean:
-                    return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
+                val_clean = str(val).strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+                if val_clean == 'entregado':
+                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'  # Rojo
+                elif 'transito' in val_clean:
+                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'  # Verde
+                elif 'aduana' in val_clean:
+                    return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'  # Amarillo
+                # En Producción y En POL permanecen blancos (sin estilo adicional)
                 return ''
 
             df_display = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']].copy()
@@ -203,7 +213,7 @@ else:
                         with col3:
                             consignatario_e = st.text_input("Consignatario", value=str(row_data['consignatario'] or ''))
                             
-                            # Parseo ultra seguro de fecha
+                            # Parseo seguro de fecha
                             fecha_v = safe_parse_date(row_data['eta'])
                             eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
                             
@@ -311,7 +321,7 @@ else:
                             origen = str(row.get('origen', 'China')) if pd.notna(row.get('origen')) else 'China'
                             destino = str(row.get('destino', 'Venezuela')) if pd.notna(row.get('destino')) else 'Venezuela'
                             eta = str(row.get('eta', '')) if pd.notna(row.get('eta')) else ''
-                            estatus = str(row.get('estatus', 'En Puerto Origen')) if pd.notna(row.get('estatus')) else 'En Puerto Origen'
+                            estatus = str(row.get('estatus', 'En Producción')) if pd.notna(row.get('estatus')) else 'En Producción'
                             agente_carga = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) else ''
                             agente_aduanas = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
                             consignatario = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
@@ -438,7 +448,7 @@ else:
                 with col3:
                     consignatario_edit = st.text_input("Consignatario", value=str(row['consignatario'] or ''))
                     
-                    # Parseo ultra seguro de fecha
+                    # Parseo seguro de fecha
                     fecha_val = safe_parse_date(row['eta'])
                     eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
                     
