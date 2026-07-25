@@ -193,10 +193,30 @@ else:
         st.caption("Visualización interactiva y gestión de archivos en tiempo real")
         
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
+        df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
         
         if df.empty:
             st.info("No hay embarques registrados aún.")
         else:
+            # Obtener lista de invoices con pago de Freight Forwarder
+            if not df_pagos_all.empty:
+                invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique()
+            else:
+                invoices_con_pago_ff = []
+
+            # Calcular el estado del Pago de Flete para la tabla
+            def check_pago_ff(row):
+                estatus = str(row['estatus']).strip()
+                inv = row['num_invoice']
+                if estatus == 'Entregado':
+                    return '✅ No Aplica / Pagado'
+                elif inv in invoices_con_pago_ff:
+                    return '🟢 Flete Pagado'
+                else:
+                    return '⚠️ PENDIENTE FLETE'
+
+            df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
+
             def highlight_status(val):
                 val_clean = str(val).strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
                 if val_clean == 'entregado':
@@ -207,10 +227,17 @@ else:
                     return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
                 return ''
 
-            df_display = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']].copy()
-            df_display.columns = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
+            def highlight_flete(val):
+                if 'PENDIENTE' in str(val):
+                    return 'background-color: #FFE1A8; color: #854D0E; font-weight: bold;'
+                elif 'Pagado' in str(val):
+                    return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
+                return ''
 
-            styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
+            df_display = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status']].copy()
+            df_display.columns = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete']
+
+            styled_df = df_display.style.map(highlight_status, subset=['Estatus']).map(highlight_flete, subset=['Estado Flete'])
 
             st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
             
@@ -231,6 +258,15 @@ else:
 
                 st.markdown("---")
                 st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
+
+                # ALERTA VISUAL DE FLETE PENDIENTE EN EL DETALLE
+                es_entregado = (str(row_data['estatus']).strip() == "Entregado")
+                tiene_pago_ff = selected_invoice in invoices_con_pago_ff
+
+                if not es_entregado and not tiene_pago_ff:
+                    st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
+                elif tiene_pago_ff:
+                    st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
 
                 # 1. ROL ALMACÉN
                 if role == "almacen":
@@ -335,7 +371,6 @@ else:
                         for idx, p_row in df_pagos_emb.iterrows():
                             c_p1, c_p2, c_p3, c_p4 = st.columns([2, 2, 2, 2])
                             
-                            # Distintivo visual en el tipo de pago
                             badge = "🏭" if p_row['tipo_pago'] == 'Pago a Fábrica' else "🚢"
                             c_p1.write(f"**Tipo:** {badge} {p_row['tipo_pago']}")
                             c_p2.write(f"**Banco:** {p_row['banco']}")
