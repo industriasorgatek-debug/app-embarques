@@ -125,7 +125,7 @@ else:
     
     role = st.session_state.user_role
     
-    # Definición de opciones simplificada por rol
+    # Definición de opciones por rol
     if role == "admin":  # Compras
         options = [
             "📋 Control de Embarques", 
@@ -133,7 +133,7 @@ else:
             "➕ Cargar Nuevo Embarque", 
             "✏️ Editar / Actualizar Embarque"
         ]
-    else:  # Almacén y Administración solo requieren la vista centralizada
+    else:  # Almacén y Administración
         options = ["📋 Control de Embarques"]
 
     menu = st.sidebar.radio("Navegación", options)
@@ -148,7 +148,7 @@ else:
 
     conn = sqlite3.connect(DB_PATH)
 
-    # --- VISTA ÚNICA / PRINCIPAL: CONTROL DE EMBARQUES ---
+    # --- VISTA PRINCIPAL: CONTROL DE EMBARQUES ---
     if menu == "📋 Control de Embarques":
         st.title("📋 Control General de Embarques")
         st.caption("Visualización interactiva y gestión de archivos en tiempo real")
@@ -173,7 +173,7 @@ else:
 
             styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
 
-            st.info("💡 **Tip:** Haz clic sobre cualquier fila de la tabla para seleccionar un embarque y descargar sus documentos abajo.")
+            st.info("💡 **Tip:** Haz clic sobre cualquier fila de la tabla para seleccionar un embarque y desplegar sus opciones/documentos abajo.")
             
             # Tabla Interactiva
             event = st.dataframe(
@@ -212,7 +212,7 @@ else:
                     else:
                         st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
-                # 2. ROL ADMINISTRACIÓN -> Todo el Expediente Digital
+                # 2. ROL ADMINISTRACIÓN -> Descarga de todos los documentos
                 elif role == "admon":
                     st.subheader("💼 Expediente Digital del Embarque")
                     docs = [
@@ -238,8 +238,33 @@ else:
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
-                # 3. ROL COMPRAS / ADMIN -> Edición
+                # 3. ROL COMPRAS (ADMIN) -> Documentos completos + Botón de Edición
                 elif role == "admin":
+                    st.subheader("💼 Expediente Digital del Embarque")
+                    docs = [
+                        ("Packing List", row_data['path_packing']),
+                        ("Factura Comercial (Invoice)", row_data['path_invoice']),
+                        ("Factura de Flete", row_data['path_flete']),
+                        ("Bill of Lading (BL)", row_data['path_bl'])
+                    ]
+                    
+                    col_d1, col_d2 = st.columns(2)
+                    for idx, (label, path) in enumerate(docs):
+                        col_target = col_d1 if idx % 2 == 0 else col_d2
+                        with col_target:
+                            if has_valid_file(path):
+                                with open(path, "rb") as f:
+                                    st.download_button(
+                                        label=f"⬇️ Descargar {label}",
+                                        data=f,
+                                        file_name=os.path.basename(path),
+                                        mime="application/octet-stream",
+                                        key=f"main_compras_{label}_{selected_invoice}"
+                                    )
+                            else:
+                                st.caption(f"❌ {label}: No cargado")
+
+                    st.markdown("---")
                     if st.button(f"✏️ Desplegar Formulario de Edición Rápida ({selected_invoice})", type="primary"):
                         st.session_state.editing_invoice = selected_invoice
 
