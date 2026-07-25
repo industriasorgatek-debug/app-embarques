@@ -66,10 +66,8 @@ if "user_role" not in st.session_state:
     st.session_state.user_role = None
 if "user_dept" not in st.session_state:
     st.session_state.user_dept = None
-if "selected_menu" not in st.session_state:
-    st.session_state.selected_menu = "📋 Control de Embarques"
-if "invoice_to_edit" not in st.session_state:
-    st.session_state.invoice_to_edit = None
+if "editing_invoice" not in st.session_state:
+    st.session_state.editing_invoice = None
 
 # --- PANTALLA LOGIN ---
 if not st.session_state.authenticated:
@@ -105,24 +103,14 @@ else:
     elif role == "almacen":
         options = ["📋 Control de Embarques", "📦 Zona Almacén"]
 
-    # Sincronización del menú
-    if st.session_state.selected_menu not in options:
-        st.session_state.selected_menu = options[0]
-
-    menu = st.sidebar.radio(
-        "Navegación", 
-        options, 
-        index=options.index(st.session_state.selected_menu),
-        key="nav_radio"
-    )
-    st.session_state.selected_menu = menu
+    menu = st.sidebar.radio("Navegación", options)
 
     st.sidebar.markdown("---")
     if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user_role = None
         st.session_state.user_dept = None
-        st.session_state.selected_menu = "📋 Control de Embarques"
+        st.session_state.editing_invoice = None
         st.rerun()
 
     conn = sqlite3.connect(DB_PATH)
@@ -153,9 +141,8 @@ else:
             styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
 
             if role == "admin":
-                st.info("💡 **Compras:** Haz clic sobre cualquier casilla o fila de la tabla para abrir el botón de acceso directo a edición.")
+                st.info("💡 **Compras:** Selecciona una fila para editar el expediente abajo directamente.")
                 
-                # Tabla interactiva con selección de fila
                 event = st.dataframe(
                     styled_df,
                     use_container_width=True,
@@ -171,10 +158,82 @@ else:
                     selected_invoice = df_display.iloc[row_idx]['N° Invoice']
                     
                     st.success(f"📌 Embarque seleccionado: **Invoice {selected_invoice}**")
-                    if st.button(f"✏️ Ir a Editar Embarque {selected_invoice}", type="primary"):
-                        st.session_state.invoice_to_edit = selected_invoice
-                        st.session_state.selected_menu = "✏️ Editar / Actualizar Embarque"
+                    if st.button(f"✏️ Desplegar Formulario de Edición ({selected_invoice})", type="primary"):
+                        st.session_state.editing_invoice = selected_invoice
+
+                # MOSTRAR FORMULARIO DE EDICIÓN DIRECTAMENTE ABAJO
+                if st.session_state.editing_invoice:
+                    st.markdown("---")
+                    st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
+                    
+                    # Cargar datos del embarque seleccionado
+                    row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
+                    
+                    with st.form("form_quick_edit"):
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.text_input("Número de Invoice", value=str(row_data['num_invoice']), disabled=True)
+                            fabricante_e = st.text_input("Fabricante / Proveedor", value=str(row_data['fabricante'] or ''))
+                            producto_e = st.text_input("Descripción del Producto", value=str(row_data['producto'] or ''))
+                            origen_e = st.text_input("Origen", value=str(row_data['origen'] or ''))
+                            destino_e = st.text_input("Destino", value=str(row_data['destino'] or ''))
+                            
+                        with col2:
+                            num_bl_e = st.text_input("Número de BL", value=str(row_data['num_bl'] or ''))
+                            nav_val = str(row_data['naviera']) if row_data['naviera'] in NAVIERAS else NAVIERAS[0]
+                            naviera_e = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
+                            num_contenedor_e = st.text_input("Número de Contenedor", value=str(row_data['num_contenedor'] or ''))
+                            agente_carga_e = st.text_input("Agente de Carga", value=str(row_data['agente_carga'] or ''))
+                            agente_aduanas_e = st.text_input("Agente de Aduanas", value=str(row_data['agente_aduanas'] or ''))
+                            
+                        with col3:
+                            consignatario_e = st.text_input("Consignatario", value=str(row_data['consignatario'] or ''))
+                            try:
+                                fecha_v = pd.to_datetime(row_data['eta']).date()
+                            except:
+                                fecha_v = pd.to_datetime("today").date()
+                            eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
+                            
+                            est_v = str(row_data['estatus']) if row_data['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
+                            estatus_e = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_v))
+                        
+                        st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
+                        col_f1, col_f2 = st.columns(2)
+                        with col_f1:
+                            q_file_pack = st.file_uploader("Nuevo Packing List", type=["pdf", "xlsx"], key="q_pack")
+                            q_file_inv = st.file_uploader("Nueva Factura Comercial", type=["pdf"], key="q_inv")
+                        with col_f2:
+                            q_file_fle = st.file_uploader("Nueva Factura Flete", type=["pdf"], key="q_fle")
+                            q_file_bl = st.file_uploader("Nuevo BL", type=["pdf"], key="q_bl")
+
+                        c_btn1, c_btn2 = st.columns([1, 1])
+                        with c_btn1:
+                            submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
+                        
+                    if submit_q_edit:
+                        p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
+                        p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
+                        p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
+                        p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
+                        
+                        c = conn.cursor()
+                        c.execute('''
+                            UPDATE embarques SET
+                                origen = ?, destino = ?, fabricante = ?, agente_carga = ?,
+                                agente_aduanas = ?, consignatario = ?, producto = ?, num_bl = ?,
+                                naviera = ?, num_contenedor = ?, eta = ?, estatus = ?,
+                                path_packing = ?, path_invoice = ?, path_flete = ?, path_bl = ?
+                            WHERE num_invoice = ?
+                        ''', (origen_e, destino_e, fabricante_e, agente_carga_e,
+                              agente_aduanas_e, consignatario_e, producto_e, num_bl_e,
+                              naviera_e, num_contenedor_e, str(eta_e), estatus_e,
+                              p_pack, p_inv, p_fle, p_bl, st.session_state.editing_invoice))
+                        conn.commit()
+                        st.session_state.editing_invoice = None
+                        st.success("✅ ¡Embarque actualizado con éxito!")
                         st.rerun()
+
             else:
                 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
@@ -343,13 +402,7 @@ else:
             st.info("No hay embarques para editar.")
         else:
             invoices_list = list(df['num_invoice'].unique())
-            
-            # Si venimos redirigidos desde el clic en la tabla
-            default_index = 0
-            if st.session_state.invoice_to_edit and st.session_state.invoice_to_edit in invoices_list:
-                default_index = invoices_list.index(st.session_state.invoice_to_edit)
-            
-            selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", invoices_list, index=default_index)
+            selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", invoices_list)
             row = df[df['num_invoice'] == selected_invoice].iloc[0]
             
             with st.form("form_editar_embarque"):
@@ -365,15 +418,13 @@ else:
                 with col2:
                     num_bl_edit = st.text_input("Número de BL", value=str(row['num_bl'] or ''))
                     nav_val = str(row['naviera']) if row['naviera'] in NAVIERAS else NAVIERAS[0]
-                    nav_index = NAVIERAS.index(nav_val)
-                    naviera_edit = st.selectbox("Línea Naviera", NAVIERAS, index=nav_index)
+                    naviera_edit = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
                     num_contenedor_edit = st.text_input("Número de Contenedor", value=str(row['num_contenedor'] or ''))
                     agente_carga_edit = st.text_input("Agente de Carga", value=str(row['agente_carga'] or ''))
                     agente_aduanas_edit = st.text_input("Agente de Aduanas", value=str(row['agente_aduanas'] or ''))
                     
                 with col3:
                     consignatario_edit = st.text_input("Consignatario", value=str(row['consignatario'] or ''))
-                    
                     try:
                         fecha_val = pd.to_datetime(row['eta']).date()
                     except:
@@ -381,8 +432,7 @@ else:
                     eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
                     
                     est_val = str(row['estatus']) if row['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
-                    est_index = ESTATUS_LISTA.index(est_val)
-                    estatus_edit = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=est_index)
+                    estatus_edit = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_val))
                 
                 st.markdown("---")
                 st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
