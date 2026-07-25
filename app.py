@@ -5,6 +5,11 @@ import os
 import io
 from datetime import date
 
+# -------------------------------------------------------------
+# CONFIGURACIÓN DE PÁGINA (¡DEBE SER LO PRIMERO EN EJECUTARSE!)
+# -------------------------------------------------------------
+st.set_page_config(page_title="Control de Embarques", layout="wide")
+
 # Importación para la generación del PDF
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -132,7 +137,7 @@ def safe_parse_date(val):
         return date.today()
 
 # -------------------------------------------------------------
-# FUNCIÓN GENERADORA DEL PDF DE LA FICHA DEL EMBARQUE
+# FUNCIÓN GENERADORA DEL PDF DE LA FICHA DEL EMBARQUE (ACTUALIZADA)
 # -------------------------------------------------------------
 def generar_pdf_embarque(row_data, df_pagos):
     buffer = io.BytesIO()
@@ -145,21 +150,21 @@ def generar_pdf_embarque(row_data, df_pagos):
     styles = getSampleStyleSheet()
     
     # Estilos personalizados
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor('#0F172A'), alignment=0)
-    subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Heading2'], fontSize=12, leading=15, textColor=colors.HexColor('#0369A1'))
-    body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=9, leading=12)
-    header_cell_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.white, fontName='Helvetica-Bold')
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor('#0F172A'))
+    subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Heading2'], fontSize=11, leading=14, textColor=colors.HexColor('#0369A1'))
+    body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=8.5, leading=11)
+    header_cell_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.white, fontName='Helvetica-Bold')
 
     elements = []
 
     # Encabezado
     elements.append(Paragraph(f"🚢 FICHA TÉCNICA DE EMBARQUE — INVOICE: {row_data['num_invoice']}", title_style))
     elements.append(Paragraph(f"Generado el: {date.today().strftime('%d/%m/%Y')} | Departamento de Compras", body_style))
-    elements.append(Spacer(1, 15))
+    elements.append(Spacer(1, 10))
 
     # Tabla 1: Información Logística Principal
     elements.append(Paragraph("📦 Datos Logísticos del Embarque", subtitle_style))
-    elements.append(Spacer(1, 5))
+    elements.append(Spacer(1, 4))
 
     data_logistica = [
         [Paragraph("<b>Estatus Actual:</b>", body_style), str(row_data['estatus']), Paragraph("<b>Línea Naviera:</b>", body_style), str(row_data['naviera'])],
@@ -173,15 +178,15 @@ def generar_pdf_embarque(row_data, df_pagos):
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
     ]))
     elements.append(t1)
-    elements.append(Spacer(1, 15))
+    elements.append(Spacer(1, 10))
 
     # Tabla 2: Contactos y Agentes
     elements.append(Paragraph("👥 Proveedor y Agentes Asignados", subtitle_style))
-    elements.append(Spacer(1, 5))
+    elements.append(Spacer(1, 4))
 
     data_agentes = [
         [Paragraph("<b>Fabricante / Proveedor:</b>", body_style), str(row_data['fabricante'])],
@@ -195,44 +200,62 @@ def generar_pdf_embarque(row_data, df_pagos):
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F1F5F9')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
     ]))
     elements.append(t2)
-    elements.append(Spacer(1, 15))
+    elements.append(Spacer(1, 10))
 
-    # Módulo Financiero
-    elements.append(Paragraph("💰 Resumen Financiero y Pagos a Fábrica", subtitle_style))
-    elements.append(Spacer(1, 5))
+    # Módulo Financiero: RESUMEN FÁBRICA Y FLETE
+    elements.append(Paragraph("💰 Resumen Financiero (Fábrica y Flete)", subtitle_style))
+    elements.append(Spacer(1, 4))
 
+    # Cálculos Fábrica
     monto_factura = float(row_data['monto_factura']) if pd.notna(row_data['monto_factura']) else 0.0
     df_fabrica = df_pagos[df_pagos['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos.empty else pd.DataFrame()
-    monto_abonado = df_fabrica['monto'].sum() if not df_fabrica.empty else 0.0
-    saldo_pendiente = monto_factura - monto_abonado
+    monto_abonado_fabrica = df_fabrica['monto'].sum() if not df_fabrica.empty else 0.0
+    saldo_pendiente_fabrica = monto_factura - monto_abonado_fabrica
+
+    # Cálculos Flete
+    df_flete = df_pagos[df_pagos['tipo_pago'] == 'Pago a Freight Forwarder'] if not df_pagos.empty else pd.DataFrame()
+    monto_flete_pagado = df_flete['monto'].sum() if not df_flete.empty else 0.0
+    
+    estatus_curr = str(row_data['estatus']).strip()
+    if estatus_curr in ['Entregado', 'Pendiente Pago']:
+        estado_flete_str = "No Aplica / Pagado"
+    elif not df_flete.empty:
+        estado_flete_str = "🟢 Flete Pagado"
+    else:
+        estado_flete_str = "⚠️ PENDIENTE FLETE"
 
     data_finanzas = [
-        [Paragraph("<b>Monto Factura:</b>", body_style), f"${monto_factura:,.2f} USD",
-         Paragraph("<b>Total Abonado:</b>", body_style), f"${monto_abonado:,.2f} USD",
-         Paragraph("<b>Saldo Pendiente:</b>", body_style), f"${saldo_pendiente:,.2f} USD"]
+        [Paragraph("<b>FÁBRICA — Factura:</b>", body_style), f"${monto_factura:,.2f}",
+         Paragraph("<b>Abonado:</b>", body_style), f"${monto_abonado_fabrica:,.2f}",
+         Paragraph("<b>Saldo Pendiente:</b>", body_style), f"${saldo_pendiente_fabrica:,.2f}"],
+        
+        [Paragraph("<b>FLETE — Agente:</b>", body_style), str(row_data['agente_carga'] or 'N/A'),
+         Paragraph("<b>Estatus Flete:</b>", body_style), estado_flete_str,
+         Paragraph("<b>Total Pagado Flete:</b>", body_style), f"${monto_flete_pagado:,.2f}"]
     ]
 
-    t3 = Table(data_finanzas, colWidths=[80, 90, 80, 90, 90, 90])
+    t3 = Table(data_finanzas, colWidths=[100, 80, 80, 90, 90, 80])
     t3.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#E0F2FE')),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#0284C7')),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E0F2FE')),
+        ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#FEF3C7')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
     ]))
     elements.append(t3)
     elements.append(Spacer(1, 10))
 
-    # Historial de Pagos
-    elements.append(Paragraph("<b>Historial de Pagos Registrados:</b>", body_style))
-    elements.append(Spacer(1, 5))
+    # Historial Unificado de Pagos (Fábrica + Freight Forwarder)
+    elements.append(Paragraph("<b>Historial Unificado de Pagos Registrados (Fábrica y Flete):</b>", body_style))
+    elements.append(Spacer(1, 4))
 
     if df_pagos.empty:
-        elements.append(Paragraph("<i>No existen pagos registrados para esta invoice.</i>", body_style))
+        elements.append(Paragraph("<i>No existen pagos registrados para este embarque.</i>", body_style))
     else:
         table_data_pagos = [
             [Paragraph("Tipo Pago", header_cell_style), Paragraph("Banco", header_cell_style), Paragraph("Monto ($)", header_cell_style), Paragraph("Fecha", header_cell_style), Paragraph("Referencia", header_cell_style)]
@@ -258,9 +281,6 @@ def generar_pdf_embarque(row_data, df_pagos):
     doc.build(elements)
     buffer.seek(0)
     return buffer
-
-# Configuración de página
-st.set_page_config(page_title="Control de Embarques", layout="wide")
 
 # Variables de Estado de Sesión
 if "authenticated" not in st.session_state:
