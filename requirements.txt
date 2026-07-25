@@ -1,5 +1,4 @@
 streamlit
 pandas
-openyxl
 reportlab
-st-aggrid
+openpyxl
