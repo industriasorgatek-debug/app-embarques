@@ -4,6 +4,7 @@ import pandas as pd
 import os
 import io
 from datetime import date
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE PÁGINA (¡DEBE SER LO PRIMERO EN EJECUTARSE!)
@@ -450,20 +451,60 @@ else:
                         st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
 
                 # 1. ROL ALMACÉN
-                if role == "almacen":
-                    st.subheader("📦 Descarga de Packing List")
-                    if has_valid_file(row_data['path_packing']):
-                        with open(row_data['path_packing'], "rb") as f:
-                            st.download_button(
-                                label=f"⬇️ Descargar Packing List ({selected_invoice})",
-                                data=f,
-                                file_name=os.path.basename(row_data['path_packing']),
-                                mime="application/octet-stream",
-                                type="primary",
-                                key=f"main_pack_{selected_invoice}"
-                            )
-                    else:
-                        st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
+                # -------------------------------------------------------------
+# VISTA INTERACTIVA PARA ALMACÉN (Permite cambiar "En Aduanas" -> "Entregado")
+# -------------------------------------------------------------
+if role == "almacen":
+    st.subheader("📦 Lista de Embarques (Recepción de Mercancía)")
+    st.info("💡 **Instrucciones:** Haz **doble clic** sobre el estatus de un embarque que esté en *En Aduanas* para cambiarlo a *Entregado*.")
+
+    # Preparamos las opciones de AgGrid
+    df_almacen = df[['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']].copy()
+    
+    gb = GridOptionsBuilder.from_dataframe(df_almacen)
+    gb.configure_default_column(editable=False) # Todo bloqueado por defecto
+    
+    # Solo permitimos editar la columna 'estatus' con menú desplegable
+    gb.configure_column(
+        field="estatus",
+        header_name="Estatus",
+        editable=True,
+        cellEditor='agSelectCellEditor',
+        cellEditorParams={'values': ['En Aduanas', 'Entregado']}
+    )
+    
+    gridOptions = gb.build()
+
+    # Mostramos la tabla editable
+    grid_response = AgGrid(
+        df_almacen,
+        gridOptions=gridOptions,
+        update_mode=GridUpdateMode.VALUE_CHANGED,
+        height=350,
+        fit_columns_on_grid_load=True,
+        key="aggrid_almacen"
+    )
+
+    df_modificado = grid_response['data']
+
+    # Detectar el cambio en la celda y actualizar SQLite
+    if not df_almacen.equals(df_modificado):
+        for index, row in df_modificado.iterrows():
+            estatus_anterior = df_almacen.loc[index, 'estatus']
+            estatus_nuevo = row['estatus']
+
+            if estatus_anterior != estatus_nuevo:
+                if estatus_anterior == "En Aduanas" and estatus_nuevo == "Entregado":
+                    # Actualización directa en la base de datos SQLite
+                    c = conn.cursor()
+                    c.execute("UPDATE embarques SET estatus = 'Entregado' WHERE num_invoice = ?", (row['num_invoice'],))
+                    conn.commit()
+                    
+                    st.success(f"✅ ¡Embarque **{row['num_invoice']}** marcado como **Entregado**!")
+                    st.rerun()
+                else:
+                    st.warning(f"⚠️ Solo está permitido cambiar embarques que estén 'En Aduanas' a 'Entregado'.")
+                    st.rerun()
 
                 # 2. ROL ADMINISTRACIÓN
                 elif role == "admon":
