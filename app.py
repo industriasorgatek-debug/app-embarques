@@ -226,7 +226,7 @@ def generar_pdf_embarque(row_data, df_pagos):
     elif not df_flete.empty:
         estado_flete_str = "🟢 Flete Pagado"
     else:
-        estado_flete_str = "⚠️ PENDIENTE FLETE"
+        estado_flete_str = "⚠️ PENDIENTE"
 
     data_finanzas = [
         [Paragraph("<b>FÁBRICA — Factura:</b>", body_style), f"${monto_factura:,.2f}",
