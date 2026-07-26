@@ -40,8 +40,9 @@ NAVIERAS = ["CMA CGM", "HAPAG-LLOYD", "MAERSK", "ONE", "MSC", "COSCO", "EVERGREE
 ESTATUS_LISTA = [
     "Pendiente Pago",
     "En Producción",
-    "En POL",
-    "En Tránsito",
+    "En Tránsito 1",
+    "En Tránsito 2",
+    "En Tránsito 3",
     "En Aduanas",
     "Entregado"
 ]
