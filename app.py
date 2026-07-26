@@ -382,7 +382,7 @@ else:
                 if 'alerta_exoneracion' in df.columns:
                     df = df.drop(columns=['alerta_exoneracion'])
 
-        df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
+            df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
         
         if df.empty:
             st.info("No hay embarques registrados aún.")
