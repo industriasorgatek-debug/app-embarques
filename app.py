@@ -410,10 +410,10 @@ else:
         elif "en tránsito 1" in val_str:
             return 'background-color: #E2E8F0; color: #1E293B; font-weight: bold;' # Azul muy claro
         
-        elif "en transito 2" in val_str:
+        elif "en tránsito 2" in val_str:
             return 'background-color: #BFDBFE; color: #1E3A8A; font-weight: bold;' # Azul medio
         
-        elif "en transito 3" in val_str:
+        elif "en tránsito 3" in val_str:
             return 'background-color: #60A5FA; color: #FFFFFF; font-weight: bold;' # Azul fuerte (contraste blanco)
         
         elif "en aduana" in val_str:
