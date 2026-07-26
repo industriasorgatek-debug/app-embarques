@@ -401,13 +401,13 @@ else:
         if "entregado" in val_str:
             return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;' # Rojo (Alerta/Finalizado)
     
-        elif "pendiente por pagar" in val_str:
+        elif "pendiente pago" in val_str:
             return 'background-color: #FFF3CD; color: #856404; font-weight: bold;' # Amarillo Ámbar (Precaución)
         
         elif "en produccion" in val_str:
             return 'background-color: #D1ECF1; color: #0C5460; font-weight: bold;' # Turquesa claro (En proceso)
         
-        elif "en transito 1" in val_str:
+        elif "en tránsito 1" in val_str:
             return 'background-color: #E2E8F0; color: #1E293B; font-weight: bold;' # Azul muy claro
         
         elif "en transito 2" in val_str:
