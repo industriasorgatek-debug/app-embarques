@@ -444,12 +444,24 @@ df_display = df[cols_to_show].copy()
                     return 'background-color: #FCA5A5; color: #991B1B; font-weight: bold;'
                 return ''
 
+          # --- Lógica dinámica de columnas según Rol ---
+            es_compras = st.session_state.get('role') == 'Compras'
+            
+            # Definimos las columnas base
+            base_cols = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
+            base_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
+
             if role == "admin":
-                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status', 'alerta_exoneracion']
-                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete', 'Alerta Exon.']
-            else:
-                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'alerta_exoneracion']
-                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Alerta Exon.']
+                base_cols.append('pago_flete_status')
+                base_names.append('Estado Flete')
+            
+            # Solo añadimos la exoneración si es Compras
+            if es_compras:
+                base_cols.append('alerta_exoneracion')
+                base_names.append('Alerta Exon.')
+
+            cols_to_show = base_cols
+            cols_names = base_names
 
             df_display = df[cols_to_show].copy()
             df_display.columns = cols_names
