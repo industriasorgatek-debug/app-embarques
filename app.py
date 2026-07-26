@@ -368,11 +368,11 @@ else:
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
         status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
         
-       # --- Lógica de Alertas (Exclusiva para Compras) ---
+      # --- Lógica de Alertas (Exclusiva para Compras) ---
         def verificar_alerta(row):
             # 1. Verificamos si es Compras Y si tiene exoneración
             # Asegúrate de que 'role' esté guardado en st.session_state
-            if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
+            if st.session_state.get('role') == 'admin' and row.get('exoneracion', 0) == 1:
                 return '⚠️ ALERTA EXONERACIÓN'
             
             # 2. Lógica para el resto de los usuarios (o si no tiene exoneración)
