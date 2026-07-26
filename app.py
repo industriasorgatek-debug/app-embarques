@@ -362,6 +362,16 @@ else:
         st.caption("Visualización interactiva y gestión de archivos en tiempo real")
         
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
+        status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
+        
+        def verificar_alerta(row):
+            # Si el estatus es crítico y falta al menos un documento
+            if row['estatus'] in status_criticos:
+                if row['recibido_co'] == 0 or row['recibido_me'] == 0 or row['recibido_bl'] == 0:
+                    return '🔴 PENDIENTE DOCUMENTOS'
+            return '✅ OK'
+
+        df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
         df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
         
         if df.empty:
@@ -410,12 +420,30 @@ else:
                     return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
                 return ''
 
+            def highlight_exoneracion(val):
+                if 'PENDIENTE' in str(val):
+                    return 'background-color: #FCA5A5; color: #991B1B; font-weight: bold;'
+                return ''
+
             if role == "admin":
-                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status']
-                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete']
+                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status', 'alerta_exoneracion']
+                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete', 'Alerta Exon.']
             else:
-                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
-                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
+                # Si no quieres que otros roles vean la alerta, deja esto igual. 
+                # Si quieres que todos la vean, añade 'alerta_exoneracion' a la lista.
+                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'alerta_exoneracion']
+                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Alerta Exon.']
+
+            status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
+            
+            def verificar_alerta(row):
+                if row['estatus'] in status_criticos:
+                    # Si alguno es 0 (falso), entonces falta documento
+                    if row['recibido_co'] == 0 or row['recibido_me'] == 0 or row['recibido_bl'] == 0:
+                        return '🔴 PENDIENTE DOCUMENTOS'
+                return '✅ OK'
+
+            df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
             df_display = df[cols_to_show].copy()
             df_display.columns = cols_names
@@ -423,6 +451,7 @@ else:
             styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
             if role == "admin":
                 styled_df = styled_df.map(highlight_flete, subset=['Estado Flete'])
+                styled_df = styled_df.map(highlight_exoneracion, subset=['Alerta Exon.'])
 
             st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
             
