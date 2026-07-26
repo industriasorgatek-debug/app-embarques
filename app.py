@@ -359,11 +359,11 @@ else:
         st.rerun()
 
     conn = sqlite3.connect(DB_PATH)
-# --- 1. Definimos la lógica de los datos ---
-        status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
+    # --- 1. Definimos la lógica de los datos ---
+    status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
 
-        def verificar_alerta(row):
-            # Comprobamos si es el usuario de Compras y tiene exoneración
+    def verificar_alerta(row):
+        # Comprobamos si es el usuario de Compras y tiene exoneración
             if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
                 return '⚠️ ALERTA EXONERACIÓN'
             
