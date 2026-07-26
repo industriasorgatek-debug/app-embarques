@@ -396,10 +396,9 @@ else:
     df_display.columns = base_names
 
     def highlight_status(val):
-    # Convertimos a minúsculas y limpiamos espacios para que funcione aunque cambien mayúsculas/minúsculas
         val_str = str(val).lower().strip()
     
-    elif "entregado" in val_str:
+      if "entregado" in val_str:
         return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;' # Rojo (Alerta/Finalizado)
     
     elif "pendiente por pagar" in val_str:
