@@ -404,7 +404,7 @@ else:
         elif "pendiente pago" in val_str:
             return 'background-color: #FFF3CD; color: #856404; font-weight: bold;' # Amarillo Ámbar (Precaución)
         
-        elif "en produccion" in val_str:
+        elif "en producción" in val_str:
             return 'background-color: #D1ECF1; color: #0C5460; font-weight: bold;' # Turquesa claro (En proceso)
         
         elif "en tránsito 1" in val_str:
