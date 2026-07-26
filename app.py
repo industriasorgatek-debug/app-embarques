@@ -361,7 +361,7 @@ else:
     conn = sqlite3.connect(DB_PATH)
 
         # --- 1. Definimos la lógica de los datos ---
-            status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
+    status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
 
 def verificar_alerta(row):
     if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
