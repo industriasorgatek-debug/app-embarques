@@ -359,107 +359,48 @@ else:
         st.rerun()
 
     conn = sqlite3.connect(DB_PATH)
-    # --- 1. Definimos la lógica de los datos ---
+    # --- 1. CARGA DE DATOS ---
+    df = pd.read_sql_query("SELECT * FROM embarques", conn)
+    df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
+    
+    # --- 2. LÓGICA DE ALERTAS Y COLORES ---
     status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
 
     def verificar_alerta(row):
-        # Comprobamos si es el usuario de Compras y tiene exoneración
-            if st.session_state.get('role') != 'Compras':
-               if 'alerta_exoneracion' in df.columns:
-                  df = df.drop(columns=['alerta_exoneracion'])   # ✅ Ahora indentada correctamente
-            
-            # Lógica para el resto de los usuarios o sin exoneración
-            if row['estatus'] in status_criticos:
-                if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
-                    return '🔴 PENDIENTE DOCUMENTOS'
-            return '✅ OK'
+        if row['estatus'] in status_criticos:
+            if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
+                return '🔴 PENDIENTE DOCUMENTOS'
+        return '✅ OK'
 
-        # Aplicamos la función
-            df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+    df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
-        # Si el usuario NO es 'Compras', eliminamos la columna por completo
-            if st.session_state.get('role') != 'Compras':
-                if 'alerta_exoneracion' in df.columns:
-                    df = df.drop(columns=['alerta_exoneracion'])
+    invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
+    
+    def check_pago_ff(row):
+        estatus = str(row['estatus']).strip()
+        if estatus in ['Entregado', 'Pendiente Pago']:
+            return '✅ No Aplica / Pagado'
+        return '🟢 Flete Pagado' if row['num_invoice'] in invoices_con_pago_ff else '⚠️ PENDIENTE FLETE'
 
-            df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
-        
-            if df.empty:
-                st.info("No hay embarques registrados aún.")
-            else:
-                invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
+    df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
-            def check_pago_ff(row):
-                estatus = str(row['estatus']).strip()
-                inv = row['num_invoice']
-                if estatus in ['Entregado', 'Pendiente Pago']:
-                    return 'No Aplica / Pagado'          # ✅ 4 espacios después del if
-                elif inv in invoices_con_pago_ff:
-                    return 'Flete Pagado'                # ✅ 4 espacios después del elif
-                else:
-                    return 'PENDIENTE FLETE'             # ✅ 4 espacios después del else
+    # --- 3. PREPARACIÓN DE VISUALIZACIÓN ---
+    base_cols = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
+    base_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
 
-            df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
+    if role == "admin":
+        base_cols += ['pago_flete_status', 'alerta_exoneracion']
+        base_names += ['Estado Flete', 'Alerta Exon.']
+    
+    df_display = df[base_cols].copy()
+    df_display.columns = base_names
 
-            def highlight_status(val):
-                val_clean = str(val).strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
-                if val_clean == 'entregado':
-                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'
-                elif 'pendiente pago' in val_clean:
-                    return 'background-color: #E2E8F0; color: #334155; font-weight: bold;'
-                elif 'produccion' in val_clean:
-                    return 'background-color: #E0F2FE; color: #0369A1; font-weight: bold;'
-                elif 'transito 1' in val_clean:
-                    return 'background-color: #E2E8F0; color: #475569; font-weight: bold;'
-                elif 'transito 2' in val_clean:
-                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'
-                elif 'transito 3' in val_clean:
-                    return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;'
-                elif 'aduana' in val_clean:
-                    return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
-                return ''
+    def highlight_status(val):
+        return 'background-color: #D4EDDA; color: #155724; font-weight: bold;' if 'Entregado' in str(val) else ''
 
-            def highlight_flete(val):
-                if 'PENDIENTE' in str(val):
-                    return 'background-color: #FFE1A8; color: #854D0E; font-weight: bold;'
-                elif 'Pagado' in str(val):
-                    return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
-                return ''
-
-            def highlight_exoneracion(val):
-                if 'PENDIENTE' in str(val):
-                    return 'background-color: #FCA5A5; color: #991B1B; font-weight: bold;'
-                return ''
-         # --- Lógica dinámica de columnas según Rol ---
-            es_compras = st.session_state.get('role') == 'Compras'
-            
-            # Definimos las columnas base
-            base_cols = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
-            base_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
-
-            if role == "admin":
-                base_cols.append('pago_flete_status')
-                base_names.append('Estado Flete')
-            
-            # Solo añadimos la exoneración si el rol es Compras
-            if es_compras:
-                base_cols.append('alerta_exoneracion')
-                base_names.append('Alerta Exon.')
-
-            cols_to_show = base_cols
-            cols_names = base_names
-
-            df_display = df[cols_to_show].copy()
-            df_display.columns = cols_names
-
-            # Estilos aplicados
-            styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
-            styled_df = styled_df.map(highlight_exoneracion, subset=['Alerta Exon.']) # Disponible en rojo para todos los roles
-            if role == "admin":
-                styled_df = styled_df.map(highlight_flete, subset=['Estado Flete'])
-
-            st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
-            
+    # --- 4. MOSTRAR TABLA ---
+    st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
+    
             event = st.dataframe(
                 styled_df,
                 use_container_width=True,
