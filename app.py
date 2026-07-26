@@ -368,20 +368,21 @@ else:
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
         status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
         
-        # --- Lógica de Alertas (Documentos + Exoneración) ---
+       # --- Lógica de Alertas (Exclusiva para Compras) ---
         def verificar_alerta(row):
-            # 1. Primero verificamos si tiene exoneración (Prioridad)
-            if row.get('exoneracion', 0) == 1:
+            # 1. Verificamos si es Compras Y si tiene exoneración
+            # Asegúrate de que 'role' esté guardado en st.session_state
+            if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
                 return '⚠️ ALERTA EXONERACIÓN'
             
-            # 2. Si no es exoneración, verificamos los documentos
+            # 2. Lógica para el resto de los usuarios (o si no tiene exoneración)
             if row['estatus'] in status_criticos:
                 if row['recibido_co'] == 0 or row['recibido_me'] == 0 or row['recibido_bl'] == 0:
                     return '🔴 PENDIENTE DOCUMENTOS'
             
             return '✅ OK'
 
-        # Aplicamos la función a todo el DataFrame
+        # Aplicamos la función
         df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
         df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
         
