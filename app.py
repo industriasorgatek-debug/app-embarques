@@ -360,26 +360,41 @@ else:
 
     conn = sqlite3.connect(DB_PATH)
 
-# --- VISTA 1: CONTROL DE EMBARQUES ---
-    if menu == "📋 Control de Embarques":
-        st.title("📋 Control General de Embarques")
-        st.caption("Visualización interactiva y gestión de archivos en tiempo real")
-        
-        df = pd.read_sql_query("SELECT * FROM embarques", conn)
+# --- 1. Definimos la lógica de los datos ---
         status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
-        
-      # --- Lógica de Alertas (Exclusiva para Compras) ---
-        def verificar_alerta(row):
-            # 1. Verificamos si es Compras Y si tiene exoneración
-            # Asegúrate de que 'role' esté guardado en st.session_state
-           # --- AJUSTE DE COLUMNAS SEGÚN ROL ---
-if st.session_state.get('role') != 'Compras':
-    # Si el usuario NO es Compras, quitamos la alerta de la lista de columnas a mostrar
-    if 'alerta_exoneracion' in cols_to_show:
-        cols_to_show.remove('alerta_exoneracion')
 
-# Ahora sí, esta línea funcionará sin errores:
-df_display = df[cols_to_show].copy()
+        def verificar_alerta(row):
+            # Solo muestra la alerta de exoneración si es Compras
+            if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
+                return '⚠️ ALERTA EXONERACIÓN'
+            # Si no es exoneración o no es Compras, revisa documentos
+            if row['estatus'] in status_criticos:
+                if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
+                    return '🔴 PENDIENTE DOCUMENTOS'
+            return '✅ OK'
+
+        # Aplicamos el cálculo al dataframe antes de filtrar columnas
+        df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+
+        # --- 2. Lógica dinámica de columnas según Rol ---
+        es_compras = st.session_state.get('role') == 'Compras'
+        
+        # Definimos las columnas base
+        base_cols = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
+        base_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
+
+        if role == "admin":
+            base_cols.append('pago_flete_status')
+            base_names.append('Estado Flete')
+        
+        # Solo añadimos la exoneración si el rol es Compras
+        if es_compras:
+            base_cols.append('alerta_exoneracion')
+            base_names.append('Alerta Exon.')
+
+        # --- 3. Creamos la vista final ---
+        df_display = df[base_cols].copy()
+        df_display.columns = base_names
             
             # 2. Lógica para el resto de los usuarios (o si no tiene exoneración)
             if row['estatus'] in status_criticos:
