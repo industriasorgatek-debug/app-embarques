@@ -372,8 +372,14 @@ else:
         def verificar_alerta(row):
             # 1. Verificamos si es Compras Y si tiene exoneración
             # Asegúrate de que 'role' esté guardado en st.session_state
-            if st.session_state.get('role') == 'compras' and row.get('exoneracion', 0) == 1:
-                return '⚠️ ALERTA EXONERACIÓN'
+           # --- AJUSTE DE COLUMNAS SEGÚN ROL ---
+if st.session_state.get('role') != 'Compras':
+    # Si el usuario NO es Compras, quitamos la alerta de la lista de columnas a mostrar
+    if 'alerta_exoneracion' in cols_to_show:
+        cols_to_show.remove('alerta_exoneracion')
+
+# Ahora sí, esta línea funcionará sin errores:
+df_display = df[cols_to_show].copy()
             
             # 2. Lógica para el resto de los usuarios (o si no tiene exoneración)
             if row['estatus'] in status_criticos:
