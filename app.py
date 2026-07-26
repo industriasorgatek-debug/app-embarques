@@ -380,8 +380,13 @@ else:
                     return 'background-color: #E2E8F0; color: #334155; font-weight: bold;'
                 elif 'produccion' in val_clean:
                     return 'background-color: #E0F2FE; color: #0369A1; font-weight: bold;'
-                elif 'transito' in val_clean:
-                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'
+                # Nuevas reglas para Tránsito
+                elif 'transito 1' in val_clean:
+                    return 'background-color: #E2E8F0; color: #475569; font-weight: bold;' # Gris claro
+                elif 'transito 2' in val_clean:
+                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;' # Verde claro
+                elif 'transito 3' in val_clean:
+                    return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;' # Amarillo/Naranja claro
                 elif 'aduana' in val_clean:
                     return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
                 return ''
