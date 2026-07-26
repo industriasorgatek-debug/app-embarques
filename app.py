@@ -359,28 +359,28 @@ else:
         st.rerun()
 
     conn = sqlite3.connect(DB_PATH)
+# --- 1. Definimos la lógica de los datos ---
+        status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
 
-        # --- 1. Definimos la lógica de los datos ---
-    status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
-
-            def verificar_alerta(row):
-                # 1. Comprobamos si es el usuario de Compras y tiene exoneración
-                if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
-                    return '⚠️ ALERTA EXONERACIÓN'
-                
-            # 2. Lógica para el resto de los usuarios o sin exoneración
+        def verificar_alerta(row):
+            # Comprobamos si es el usuario de Compras y tiene exoneración
+            if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
+                return '⚠️ ALERTA EXONERACIÓN'
+            
+            # Lógica para el resto de los usuarios o sin exoneración
             if row['estatus'] in status_criticos:
                 if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
                     return '🔴 PENDIENTE DOCUMENTOS'
-                    
             return '✅ OK'
+
         # Aplicamos la función
-        # 1. Calculamos los valores (como ya lo tienes)
         df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
-        # 2. NUEVA LÍNEA: Si el usuario NO es 'Compras', eliminamos la columna por completo
+        # Si el usuario NO es 'Compras', eliminamos la columna por completo
         if st.session_state.get('role') != 'Compras':
-            df = df.drop(columns=['alerta_exoneracion'])
+            if 'alerta_exoneracion' in df.columns:
+                df = df.drop(columns=['alerta_exoneracion'])
+
         df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
         
         if df.empty:
@@ -429,7 +429,6 @@ else:
                 if 'PENDIENTE' in str(val):
                     return 'background-color: #FCA5A5; color: #991B1B; font-weight: bold;'
                 return ''
-
          # --- Lógica dinámica de columnas según Rol ---
             es_compras = st.session_state.get('role') == 'Compras'
             
