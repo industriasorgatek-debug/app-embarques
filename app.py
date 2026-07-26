@@ -375,12 +375,12 @@ else:
             return '✅ OK'
 
         # Aplicamos la función
-        df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+                    df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
         # Si el usuario NO es 'Compras', eliminamos la columna por completo
-        if st.session_state.get('role') != 'Compras':
-            if 'alerta_exoneracion' in df.columns:
-                df = df.drop(columns=['alerta_exoneracion'])
+            if st.session_state.get('role') != 'Compras':
+                if 'alerta_exoneracion' in df.columns:
+                    df = df.drop(columns=['alerta_exoneracion'])
 
         df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
         
