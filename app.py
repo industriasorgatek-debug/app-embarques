@@ -363,10 +363,10 @@ else:
         # --- 1. Definimos la lógica de los datos ---
     status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
 
-    def verificar_alerta(row):
-            # 1. Comprobamos si es el usuario de Compras y tiene exoneración
-            if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
-                return '⚠️ ALERTA EXONERACIÓN'
+        def verificar_alerta(row):
+                # 1. Comprobamos si es el usuario de Compras y tiene exoneración
+                if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
+                    return '⚠️ ALERTA EXONERACIÓN'
                 
             # 2. Lógica para el resto de los usuarios o sin exoneración
             if row['estatus'] in status_criticos:
