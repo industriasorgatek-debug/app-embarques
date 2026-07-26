@@ -368,12 +368,20 @@ else:
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
         status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
         
+        # --- Lógica de Alertas (Documentos + Exoneración) ---
         def verificar_alerta(row):
+            # 1. Primero verificamos si tiene exoneración (Prioridad)
+            if row.get('exoneracion', 0) == 1:
+                return '⚠️ ALERTA EXONERACIÓN'
+            
+            # 2. Si no es exoneración, verificamos los documentos
             if row['estatus'] in status_criticos:
                 if row['recibido_co'] == 0 or row['recibido_me'] == 0 or row['recibido_bl'] == 0:
                     return '🔴 PENDIENTE DOCUMENTOS'
+            
             return '✅ OK'
 
+        # Aplicamos la función a todo el DataFrame
         df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
         df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
         
@@ -648,6 +656,7 @@ else:
                         eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
                         est_v = str(row_data['estatus']) if row_data['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
                         estatus_e = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_v))
+                        exoneracion_e = st.checkbox("¿Aplica Exoneración?", value=bool(row_data.get('exoneracion', 0)))
                     
                     st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
                     col_f1, col_f2 = st.columns(2)
@@ -666,19 +675,18 @@ else:
                     p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
                     p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
                     
-                    c = conn.cursor()
-                    c.execute('''
+                   c.execute('''
                         UPDATE embarques SET
                             origen = ?, destino = ?, fabricante = ?, agente_carga = ?,
                             agente_aduanas = ?, consignatario = ?, producto = ?, num_bl = ?,
                             naviera = ?, num_contenedor = ?, eta = ?, estatus = ?,
                             path_packing = ?, path_invoice = ?, path_flete = ?, path_bl = ?,
-                            monto_factura = ?
+                            monto_factura = ?, exoneracion = ?
                         WHERE num_invoice = ?
                     ''', (origen_e, destino_e, fabricante_e, agente_carga_e,
                           agente_aduanas_e, consignatario_e, producto_e, num_bl_e,
                           naviera_e, num_contenedor_e, str(eta_e), estatus_e,
-                          p_pack, p_inv, p_fle, p_bl, monto_factura_e, st.session_state.editing_invoice))
+                          p_pack, p_inv, p_fle, p_bl, monto_factura_e, int(exoneracion_e), st.session_state.editing_invoice))
                     conn.commit()
                     st.session_state.editing_invoice = None
                     st.success("✅ ¡Embarque actualizado con éxito!")
