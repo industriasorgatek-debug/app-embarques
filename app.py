@@ -356,7 +356,7 @@ else:
 
     conn = sqlite3.connect(DB_PATH)
 
-    # --- VISTA 1: CONTROL DE EMBARQUES ---
+# --- VISTA 1: CONTROL DE EMBARQUES ---
     if menu == "📋 Control de Embarques":
         st.title("📋 Control General de Embarques")
         st.caption("Visualización interactiva y gestión de archivos en tiempo real")
@@ -365,7 +365,6 @@ else:
         status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
         
         def verificar_alerta(row):
-            # Si el estatus es crítico y falta al menos un documento
             if row['estatus'] in status_criticos:
                 if row['recibido_co'] == 0 or row['recibido_me'] == 0 or row['recibido_bl'] == 0:
                     return '🔴 PENDIENTE DOCUMENTOS'
@@ -377,10 +376,7 @@ else:
         if df.empty:
             st.info("No hay embarques registrados aún.")
         else:
-            if not df_pagos_all.empty:
-                invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique()
-            else:
-                invoices_con_pago_ff = []
+            invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
 
             def check_pago_ff(row):
                 estatus = str(row['estatus']).strip()
@@ -402,13 +398,12 @@ else:
                     return 'background-color: #E2E8F0; color: #334155; font-weight: bold;'
                 elif 'produccion' in val_clean:
                     return 'background-color: #E0F2FE; color: #0369A1; font-weight: bold;'
-                # Nuevas reglas para Tránsito
                 elif 'transito 1' in val_clean:
-                    return 'background-color: #E2E8F0; color: #475569; font-weight: bold;' # Gris claro
+                    return 'background-color: #E2E8F0; color: #475569; font-weight: bold;'
                 elif 'transito 2' in val_clean:
-                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;' # Verde claro
+                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'
                 elif 'transito 3' in val_clean:
-                    return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;' # Amarillo/Naranja claro
+                    return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;'
                 elif 'aduana' in val_clean:
                     return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
                 return ''
@@ -429,29 +424,17 @@ else:
                 cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status', 'alerta_exoneracion']
                 cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete', 'Alerta Exon.']
             else:
-                # Si no quieres que otros roles vean la alerta, deja esto igual. 
-                # Si quieres que todos la vean, añade 'alerta_exoneracion' a la lista.
                 cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'alerta_exoneracion']
                 cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Alerta Exon.']
-
-            status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
-            
-            def verificar_alerta(row):
-                if row['estatus'] in status_criticos:
-                    # Si alguno es 0 (falso), entonces falta documento
-                    if row['recibido_co'] == 0 or row['recibido_me'] == 0 or row['recibido_bl'] == 0:
-                        return '🔴 PENDIENTE DOCUMENTOS'
-                return '✅ OK'
-
-            df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
             df_display = df[cols_to_show].copy()
             df_display.columns = cols_names
 
+            # Estilos aplicados
             styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
+            styled_df = styled_df.map(highlight_exoneracion, subset=['Alerta Exon.']) # Disponible en rojo para todos los roles
             if role == "admin":
                 styled_df = styled_df.map(highlight_flete, subset=['Estado Flete'])
-                styled_df = styled_df.map(highlight_exoneracion, subset=['Alerta Exon.'])
 
             st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
             
