@@ -983,7 +983,18 @@ else:
                     p_bl = save_file(new_file_bl, selected_invoice, "bl") or row['path_bl']
                     
                     c = conn.cursor()
-                    c.execute('''UPDATE embarques SET origen=?, destino=?, fabricante=?, agente_carga=?, agente_aduanas=?, consignatario=?, producto=?, num_bl=?, naviera=?, num_contenedor=?, eta=?, estatus=?, path_packing=?, path_invoice=?, path_flete=?, path_bl=?, monto_factura=? WHERE num_invoice=?''', (origen_edit, destino_edit, fabricante_edit, agente_carga_edit, agente_aduanas_edit, consignatario_edit, producto_edit, num_bl_edit, naviera_edit, num_contenedor_edit, str(eta_edit), estatus_edit, p_pack, p_inv, p_fle, p_bl, monto_factura_edit, selected_invoice))
+                    c.execute('''UPDATE embarques SET 
+                        origen=?, destino=?, fabricante=?, agente_carga=?, agente_aduanas=?, 
+                        consignatario=?, producto=?, num_bl=?, naviera=?, num_contenedor=?, 
+                        eta=?, estatus=?, path_packing=?, path_invoice=?, path_flete=?, 
+                        path_bl=?, monto_factura=?, solicitado_docs=?, recibido_co=?, 
+                        recibido_me=?, recibido_bl=? 
+                        WHERE num_invoice=?''', 
+                        (origen_edit, destino_edit, fabricante_edit, agente_carga_edit, 
+                         agente_aduanas_edit, consignatario_edit, producto_edit, num_bl_edit, 
+                         naviera_edit, num_contenedor_edit, str(eta_edit), estatus_edit, 
+                         p_pack, p_inv, p_fle, p_bl, monto_factura_edit, int(sol_docs), 
+                         int(rec_co), int(rec_me), int(rec_bl), selected_invoice))
                     conn.commit()
                     st.success(f"✅ Embarque Invoice {selected_invoice} actualizado.")
 
