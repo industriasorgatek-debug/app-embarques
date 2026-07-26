@@ -375,7 +375,7 @@ else:
             return '✅ OK'
 
         # Aplicamos la función
-                    df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+        df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
         # Si el usuario NO es 'Compras', eliminamos la columna por completo
             if st.session_state.get('role') != 'Compras':
