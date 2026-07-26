@@ -444,7 +444,7 @@ df_display = df[cols_to_show].copy()
                     return 'background-color: #FCA5A5; color: #991B1B; font-weight: bold;'
                 return ''
 
-          # --- Lógica dinámica de columnas según Rol ---
+         # --- Lógica dinámica de columnas según Rol ---
             es_compras = st.session_state.get('role') == 'Compras'
             
             # Definimos las columnas base
@@ -455,7 +455,7 @@ df_display = df[cols_to_show].copy()
                 base_cols.append('pago_flete_status')
                 base_names.append('Estado Flete')
             
-            # Solo añadimos la exoneración si es Compras
+            # Solo añadimos la exoneración si el rol es Compras
             if es_compras:
                 base_cols.append('alerta_exoneracion')
                 base_names.append('Alerta Exon.')
