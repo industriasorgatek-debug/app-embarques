@@ -389,9 +389,9 @@ df_display = df[base_cols].copy()
 df_display.columns = base_names
             
             # 2. Lógica para el resto de los usuarios (o si no tiene exoneración)
-            if row['estatus'] in status_criticos:
-                if row['recibido_co'] == 0 or row['recibido_me'] == 0 or row['recibido_bl'] == 0:
-                    return '🔴 PENDIENTE DOCUMENTOS'
+        if row['estatus'] in status_criticos:
+        if row['recibido_co'] == 0 or row['recibido_me'] == 0 or row['recibido_bl'] == 0:
+            return '🔴 PENDIENTE DOCUMENTOS'
             
             return '✅ OK'
 
