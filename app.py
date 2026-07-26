@@ -364,8 +364,9 @@ else:
 
     def verificar_alerta(row):
         # Comprobamos si es el usuario de Compras y tiene exoneración
-            if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
-                return '⚠️ ALERTA EXONERACIÓN'
+            if st.session_state.get('role') != 'Compras':
+               if 'alerta_exoneracion' in df.columns:
+                  df = df.drop(columns=['alerta_exoneracion'])   # ✅ Ahora indentada correctamente
             
             # Lógica para el resto de los usuarios o sin exoneración
             if row['estatus'] in status_criticos:
@@ -392,11 +393,11 @@ else:
                 estatus = str(row['estatus']).strip()
                 inv = row['num_invoice']
                 if estatus in ['Entregado', 'Pendiente Pago']:
-                    return '✅ No Aplica / Pagado'
+                    return 'No Aplica / Pagado'          # ✅ 4 espacios después del if
                 elif inv in invoices_con_pago_ff:
-                    return '🟢 Flete Pagado'
+                    return 'Flete Pagado'                # ✅ 4 espacios después del elif
                 else:
-                    return '⚠️ PENDIENTE FLETE'
+                    return 'PENDIENTE FLETE'             # ✅ 4 espacios después del else
 
             df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
