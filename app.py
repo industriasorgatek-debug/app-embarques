@@ -372,7 +372,7 @@ else:
         def verificar_alerta(row):
             # 1. Verificamos si es Compras Y si tiene exoneración
             # Asegúrate de que 'role' esté guardado en st.session_state
-            if st.session_state.get('role') == 'admin' and row.get('exoneracion', 0) == 1:
+            if st.session_state.get('role') == 'compras' and row.get('exoneracion', 0) == 1:
                 return '⚠️ ALERTA EXONERACIÓN'
             
             # 2. Lógica para el resto de los usuarios (o si no tiene exoneración)
@@ -383,7 +383,12 @@ else:
             return '✅ OK'
 
         # Aplicamos la función
+        # 1. Calculamos los valores (como ya lo tienes)
         df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+
+        # 2. NUEVA LÍNEA: Si el usuario NO es 'Compras', eliminamos la columna por completo
+        if st.session_state.get('role') != 'Compras':
+            df = df.drop(columns=['alerta_exoneracion'])
         df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
         
         if df.empty:
