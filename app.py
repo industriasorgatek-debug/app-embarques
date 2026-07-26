@@ -362,31 +362,31 @@ else:
 
         # --- 1. Definimos la lógica de los datos ---
             status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
-    
-            def verificar_alerta(row):
-                if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
-                    return '⚠️ ALERTA EXONERACIÓN'
-                if row['estatus'] in status_criticos:
-                    if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
-                        return '🔴 PENDIENTE DOCUMENTOS'
-                return '✅ OK'
-    
-            df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
-    
-            es_compras = st.session_state.get('role') == 'Compras'
-            base_cols = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
-            base_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
-    
-            if role == "admin":
-                base_cols.append('pago_flete_status')
-                base_names.append('Estado Flete')
-            
-            if es_compras:
-                base_cols.append('alerta_exoneracion')
-                base_names.append('Alerta Exon.')
-    
-            df_display = df[base_cols].copy()
-            df_display.columns = base_names
+
+def verificar_alerta(row):
+    if st.session_state.get('role') == 'Compras' and row.get('exoneracion', 0) == 1:
+        return '⚠️ ALERTA EXONERACIÓN'
+    if row['estatus'] in status_criticos:
+        if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
+            return '🔴 PENDIENTE DOCUMENTOS'
+    return '✅ OK'
+
+df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+
+es_compras = st.session_state.get('role') == 'Compras'
+base_cols = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
+base_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
+
+if role == "admin":
+    base_cols.append('pago_flete_status')
+    base_names.append('Estado Flete')
+
+if es_compras:
+    base_cols.append('alerta_exoneracion')
+    base_names.append('Alerta Exon.')
+
+df_display = df[base_cols].copy()
+df_display.columns = base_names
             
             # 2. Lógica para el resto de los usuarios (o si no tiene exoneración)
             if row['estatus'] in status_criticos:
