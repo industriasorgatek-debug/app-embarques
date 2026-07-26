@@ -387,7 +387,7 @@ else:
             if df.empty:
                 st.info("No hay embarques registrados aún.")
             else:
-            invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
+                invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
 
             def check_pago_ff(row):
                 estatus = str(row['estatus']).strip()
