@@ -410,7 +410,7 @@ else:
                 key="tabla_interactiva"
             )
 
-            selected_rows = event.selection.get("rows", [])
+    selected_rows = event.selection.get("rows", [])
             if selected_rows:
                 row_idx = selected_rows[0]
                 selected_invoice = df_display.iloc[row_idx]['N° Invoice']
