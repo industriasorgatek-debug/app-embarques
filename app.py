@@ -98,6 +98,18 @@ def init_db():
         c.execute("ALTER TABLE embarques ADD COLUMN naviera TEXT")
     if 'monto_factura' not in columns:
         c.execute("ALTER TABLE embarques ADD COLUMN monto_factura REAL DEFAULT 0.0")
+
+    c.execute("PRAGMA table_info(embarques)")
+    columns = [column[1] for column in c.fetchall()]
+    
+    if 'solicitado_docs' not in columns:
+        c.execute("ALTER TABLE embarques ADD COLUMN solicitado_docs INTEGER DEFAULT 0")
+    if 'recibido_co' not in columns:
+        c.execute("ALTER TABLE embarques ADD COLUMN recibido_co INTEGER DEFAULT 0")
+    if 'recibido_me' not in columns:
+        c.execute("ALTER TABLE embarques ADD COLUMN recibido_me INTEGER DEFAULT 0")
+    if 'recibido_bl' not in columns:
+        c.execute("ALTER TABLE embarques ADD COLUMN recibido_bl INTEGER DEFAULT 0")
         
     conn.commit()
     conn.close()
