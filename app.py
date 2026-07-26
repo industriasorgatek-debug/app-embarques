@@ -402,13 +402,12 @@ else:
     st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
     
     event = st.dataframe(
-                styled_df,
-                use_container_width=True,
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="single-row",
-                key="tabla_interactiva"
-            )
+        df_display.style.applymap(highlight_status, subset=['Estatus']),
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row"
+    )
 
     selected_rows = event.selection.get("rows", [])
     if selected_rows:
