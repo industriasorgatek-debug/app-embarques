@@ -966,6 +966,15 @@ else:
                     new_file_flete = st.file_uploader("Nueva Factura Flete", type=["pdf"], key="edit_fle")
                     new_file_bl = st.file_uploader("Nuevo BL", type=["pdf"], key="edit_bl")
 
+                st.markdown("### 📝 Control de Documentación para Exoneración")
+                col_c1, col_c2, col_c3 = st.columns(3)
+                with col_c1:
+                    sol_docs = st.checkbox("Solicitado al Agente", value=bool(row['solicitado_docs']))
+                    rec_co = st.checkbox("Certificado de Origen", value=bool(row['recibido_co']))
+                with col_c2:
+                    rec_me = st.checkbox("Manifiesto de Exp.", value=bool(row['recibido_me']))
+                    rec_bl = st.checkbox("BL Copia", value=bool(row['recibido_bl']))
+
                 submit_edit = st.form_submit_button("💾 Guardar Cambios en Embarque")
                 if submit_edit:
                     p_pack = save_file(new_file_packing, selected_invoice, "packing") or row['path_packing']
