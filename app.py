@@ -62,9 +62,10 @@ TIPO_PAGO_LISTA = [
 ]
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH) # Usamos tu constante DB_PATH original
     c = conn.cursor()
-    # Tabla de Embarques
+    
+    # 1. Tabla de Embarques
     c.execute('''
         CREATE TABLE IF NOT EXISTS embarques (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,7 +78,7 @@ def init_db():
         )
     ''')
     
-    # Tabla Relacional de Pagos
+    # 2. Tabla Relacional de Pagos
     c.execute('''
         CREATE TABLE IF NOT EXISTS pagos_embarques (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,16 +93,15 @@ def init_db():
         )
     ''')
 
+    # 3. Verificación de columnas (Aquí es donde agregamos 'exoneracion' de forma segura)
     c.execute("PRAGMA table_info(embarques)")
     columns = [column[1] for column in c.fetchall()]
+    
+    # Agregamos las validaciones aquí dentro de manera ordenada
     if 'naviera' not in columns:
         c.execute("ALTER TABLE embarques ADD COLUMN naviera TEXT")
     if 'monto_factura' not in columns:
         c.execute("ALTER TABLE embarques ADD COLUMN monto_factura REAL DEFAULT 0.0")
-
-    c.execute("PRAGMA table_info(embarques)")
-    columns = [column[1] for column in c.fetchall()]
-    
     if 'solicitado_docs' not in columns:
         c.execute("ALTER TABLE embarques ADD COLUMN solicitado_docs INTEGER DEFAULT 0")
     if 'recibido_co' not in columns:
@@ -110,7 +110,11 @@ def init_db():
         c.execute("ALTER TABLE embarques ADD COLUMN recibido_me INTEGER DEFAULT 0")
     if 'recibido_bl' not in columns:
         c.execute("ALTER TABLE embarques ADD COLUMN recibido_bl INTEGER DEFAULT 0")
-        
+    
+    # --- AQUÍ ESTÁ LA NUEVA COLUMNA ---
+    if 'exoneracion' not in columns:
+        c.execute("ALTER TABLE embarques ADD COLUMN exoneracion INTEGER DEFAULT 0")
+
     conn.commit()
     conn.close()
 
