@@ -784,11 +784,11 @@ elif role == "admin":
     submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
     
     if submit_q_edit:
-    p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
-    p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
-    p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
-    p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
-    
+        p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
+        p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
+        p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
+        p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
+        
     c = conn.cursor()
     c.execute('''
         UPDATE embarques SET
@@ -803,9 +803,9 @@ elif role == "admin":
           naviera_e, num_contenedor_e, str(eta_e), estatus_e,
           p_pack, p_inv, p_fle, p_bl, monto_factura_e, st.session_state.editing_invoice))
     conn.commit()
-    st.session_state.editing_invoice = None
-    st.success("✅ ¡Embarque actualizado con éxito!")
-    st.rerun()
+        st.session_state.editing_invoice = None
+        st.success("✅ ¡Embarque actualizado con éxito!")
+        st.rerun()
 
     # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
     elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
