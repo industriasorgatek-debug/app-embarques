@@ -430,10 +430,10 @@ def check_pago_ff(row):
         df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
     # --- 3. PREPARACIÓN DE VISUALIZACIÓN ---
-base_cols = ['num_invoice', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
-base_names = ['N° Invoice', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
+            base_cols = ['num_invoice', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
+            base_names = ['N° Invoice', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
 
-if role == "admin":
+        if role == "admin":
         base_cols += ['pago_flete_status', 'alerta_exoneracion']
         base_names += ['Estado Flete', 'Alerta Exon.']
     
