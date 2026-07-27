@@ -632,21 +632,21 @@ elif role == "admon":
         ("Bill of Lading (BL)", row_data['path_bl'])
     ]
                         
-                        col_d1, col_d2 = st.columns(2)
-                        for idx, (label, path) in enumerate(docs):
-                            col_target = col_d1 if idx % 2 == 0 else col_d2
-                            with col_target:
-                                if has_valid_file(path):
-                                    with open(path, "rb") as f:
-                                        st.download_button(
-                                            label=f"⬇️ Descargar {label}",
-                                            data=f,
-                                            file_name=os.path.basename(path),
-                                            mime="application/octet-stream",
-                                            key=f"main_admon_{label}_{selected_invoice}"
-                                        )
-                                else:
-                                    st.caption(f"❌ {label}: No cargado")
+    col_d1, col_d2 = st.columns(2)
+    for idx, (label, path) in enumerate(docs):
+        col_target = col_d1 if idx % 2 == 0 else col_d2
+        with col_target:
+            if has_valid_file(path):
+                with open(path, "rb") as f:
+                    st.download_button(
+                        label=f"⬇️ Descargar {label}",
+                        data=f,
+                        file_name=os.path.basename(path),
+                        mime="application/octet-stream",
+                        key=f"main_admon_{label}_{selected_invoice}"
+                    )
+            else:
+                st.caption(f"❌ {label}: No cargado")
 
                     # 3. ROL COMPRAS (ADMIN)
                     elif role == "admin":
