@@ -743,12 +743,12 @@ elif role == "admin":
 
 # Formulario de Edición Rápida
     if role == "admin" and st.session_state.editing_invoice:
-    st.markdown("---")
-    st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
-    row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
+        st.markdown("---")
+        st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
+        row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
     
     with st.form("form_quick_edit"):
-    col1, col2, col3 = st.columns(3)
+        col1, col2, col3 = st.columns(3)
     with col1:
         st.text_input("Número de Invoice", value=str(row_data['num_invoice']), disabled=True)
         fabricante_e = st.text_input("Fabricante / Proveedor", value=str(row_data['fabricante'] or ''))
