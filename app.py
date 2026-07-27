@@ -8,7 +8,6 @@ from datetime import date
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE PÁGINA (¡DEBE SER LO PRIMERO EN EJECUTARSE!)
 # -------------------------------------------------------------
-st.set_page_config(page_title="Control de Embarques", layout="wide")
 
 # Importación para la generación del PDF
 from reportlab.lib.pagesizes import letter
