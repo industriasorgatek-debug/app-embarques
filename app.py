@@ -1025,4 +1025,4 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                     conn.commit()
                     st.success(f"✅ Embarque Invoice {selected_invoice} actualizado.")
 
-    conn.close()
+conn.close()
