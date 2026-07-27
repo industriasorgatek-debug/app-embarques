@@ -609,28 +609,28 @@ if role == "almacen":
                 type="primary",
                 key=f"main_pack_{selected_invoice}"
                                 )
-                        else:
-                            st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
+    else:
+        st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
-                        if row_data['estatus'] == "En Aduanas":
-                            st.markdown("---")
-                            st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado'.")
-                            if st.button("✅ Marcar como ENTREGADO", type="primary"):
-                                c = conn.cursor()
-                                c.execute("UPDATE embarques SET estatus = 'Entregado' WHERE num_invoice = ?", (selected_invoice,))
-                                conn.commit()
-                                st.success("¡Estatus actualizado a 'Entregado' con éxito!")
-                                st.rerun()
+    if row_data['estatus'] == "En Aduanas":
+        st.markdown("---")
+        st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado'.")
+        if st.button("✅ Marcar como ENTREGADO", type="primary"):
+            c = conn.cursor()
+            c.execute("UPDATE embarques SET estatus = 'Entregado' WHERE num_invoice = ?", (selected_invoice,))
+            conn.commit()
+            st.success("¡Estatus actualizado a 'Entregado' con éxito!")
+            st.rerun()
 
-                    # 2. ROL ADMINISTRACIÓN
-                    elif role == "admon":
-                        st.subheader("💼 Expediente Digital del Embarque")
-                        docs = [
-                            ("Packing List", row_data['path_packing']),
-                            ("Factura Comercial (Invoice)", row_data['path_invoice']),
-                            ("Factura de Flete", row_data['path_flete']),
-                            ("Bill of Lading (BL)", row_data['path_bl'])
-                        ]
+    # 2. ROL ADMINISTRACIÓN
+elif role == "admon":
+    st.subheader("💼 Expediente Digital del Embarque")
+    docs = [
+        ("Packing List", row_data['path_packing']),
+        ("Factura Comercial (Invoice)", row_data['path_invoice']),
+        ("Factura de Flete", row_data['path_flete']),
+        ("Bill of Lading (BL)", row_data['path_bl'])
+    ]
                         
                         col_d1, col_d2 = st.columns(2)
                         for idx, (label, path) in enumerate(docs):
