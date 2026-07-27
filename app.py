@@ -127,6 +127,99 @@ def has_valid_file(path_val):
     return os.path.exists(path_str)
 
 def safe_parse_date(val):
+    # -------------------------------------------------------------
+# FUNCIONES DE VISIBILIDAD Y CONTROL LOGÍSTICO (TIMELINE Y ETA)
+# -------------------------------------------------------------
+def get_eta_status(eta_val, estatus_val):
+    """Calcula los días restantes para la ETA y genera la alerta correspondiente"""
+    if pd.isna(eta_val) or str(eta_val).strip() in ['', 'None', 'nan', 'NaT']:
+        return "⚪ **ETA:** No especificada", "info"
+    
+    eta_date = safe_parse_date(eta_val)
+    today = date.today()
+    diff = (eta_date - today).days
+    estatus_clean = str(estatus_val).strip()
+
+    if estatus_clean == "Entregado":
+        return f"✅ **Estatus:** ENTREGADO el {eta_date.strftime('%d/%m/%Y')}", "success"
+    elif diff < 0:
+        return f"🚨 **¡EMBARQUE ATRASADO POR {abs(diff)} DÍA(S)!** (ETA era el {eta_date.strftime('%d/%m/%Y')})", "error"
+    elif diff == 0:
+        return f"🟡 **¡ARRIBO ESTIMADO HOY!** ({eta_date.strftime('%d/%m/%Y')})", "warning"
+    elif diff <= 3:
+        return f"🟡 **Arribo Inminente:** Faltan solo **{diff} día(s)** ({eta_date.strftime('%d/%m/%Y')})", "warning"
+    else:
+        return f"🟢 **Arribo a Tiempo:** Faltan **{diff} días** ({eta_date.strftime('%d/%m/%Y')})", "info"
+
+
+def render_timeline_html(estatus_actual):
+    """Genera una barra de progreso / timeline visual interactiva en HTML/CSS"""
+    fases = [
+        ("Pendiente Pago", "💳"),
+        ("En Producción", "🏭"),
+        ("En Tránsito", "🚢"),
+        ("En Aduanas", "🛃"),
+        ("Entregado", "📦")
+    ]
+    
+    # Mapeo de sub-estatus a la fase principal correspondiente
+    mapa_estatus = {
+        "Pendiente Pago": 0,
+        "En Producción": 1,
+        "En Tránsito 1": 2,
+        "En Tránsito 2": 2,
+        "En Tránsito 3": 2,
+        "En Aduanas": 3,
+        "Entregado": 4
+    }
+    
+    idx_actual = mapa_estatus.get(str(estatus_actual).strip(), 0)
+    
+    steps_html = ""
+    for i, (nombre_fase, icono) in enumerate(fases):
+        if i < idx_actual:
+            # Paso completado (Verde)
+            color_bg = "#10B981"
+            color_text = "#FFFFFF"
+            border = "none"
+            check = "✓ "
+        elif i == idx_actual:
+            # Paso actual activo (Azul destacado)
+            color_bg = "#0284C7"
+            color_text = "#FFFFFF"
+            border = "2px solid #0369A1"
+            check = "📍 "
+        else:
+            # Paso pendiente (Gris)
+            color_bg = "#E2E8F0"
+            color_text = "#64748B"
+            border = "none"
+            check = ""
+
+        # Subtítulo especial si está en tránsito
+        sub_tag = ""
+        if nombre_fase == "En Tránsito" and idx_actual == 2:
+            sub_tag = f"<br><small style='font-size: 10px; opacity: 0.9;'>({estatus_actual})</small>"
+
+        steps_html += f"""
+        <div style="flex: 1; text-align: center; margin: 0 3px;">
+            <div style="background-color: {color_bg}; color: {color_text}; padding: 10px 4px; border-radius: 8px; font-weight: bold; font-size: 12px; border: {border}; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                {check}{icono} {nombre_fase} {sub_tag}
+            </div>
+        </div>
+        """
+
+    html_container = f"""
+    <div style="background-color: #F8FAFC; padding: 12px; border-radius: 12px; border: 1px solid #CBD5E1; margin-top: 10px; margin-bottom: 15px;">
+        <div style="font-size: 11px; font-weight: bold; color: #475569; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+            🚀 Línea de Tiempo de Progreso
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            {steps_html}
+        </div>
+    </div>
+    """
+    return html_container
     if pd.isna(val) or str(val).strip() in ['', 'nan', 'NaT', 'None']:
         return date.today()
     try:
