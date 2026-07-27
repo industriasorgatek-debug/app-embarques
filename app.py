@@ -406,7 +406,7 @@ df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
 invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
     
-    def check_pago_ff(row):
+def check_pago_ff(row):
         estatus = str(row['estatus']).strip()
         if estatus in ['Entregado', 'Pendiente Pago']:
             return '✅ No Aplica / Pagado'
@@ -425,7 +425,7 @@ invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight
     df_display = df[base_cols].copy()
     df_display.columns = base_names
 
-    def highlight_status(val):
+def highlight_status(val):
         val_str = str(val).lower().strip()
     
         if "entregado" in val_str:
