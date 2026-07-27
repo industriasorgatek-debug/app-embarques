@@ -630,7 +630,7 @@ if selected_rows:
                         )
 
          # Formulario de Edición Rápida
-    if role == "admin" and st.session_state.editing_invoice:
+if role == "admin" and st.session_state.editing_invoice:
         st.markdown("---")
         st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
         row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
@@ -672,7 +672,7 @@ if selected_rows:
 
             submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
             
-        if submit_q_edit:
+    if submit_q_edit:
             p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
             p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
             p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
