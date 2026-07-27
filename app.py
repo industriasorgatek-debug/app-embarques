@@ -846,7 +846,7 @@ elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
                 )
 
     # --- VISTA 3: CARGA MASIVA ---
-    elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
+elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
         st.title("📊 Carga Masiva de Embarques")
         sample_data = pd.DataFrame([{
             "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
@@ -901,7 +901,7 @@ elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
                 st.error(f"Error procesando archivo: {e}")
 
     # --- VISTA 4: REGISTRO MANUAL ---
-    elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
+elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
         st.title("➕ Registrar Nuevo Embarque Manual")
         with st.form("form_embarque", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
@@ -951,7 +951,7 @@ elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
                         st.error(f"❌ La Invoice {num_invoice} ya existe.")
 
     # --- VISTA 5: EDITAR EMBARQUE ---
-    elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
+elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
         st.title("✏️ Editar Embarque Existente")
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
         if df.empty:
