@@ -417,7 +417,7 @@ def verificar_alerta(row):
                 return '🔴 PENDIENTE DOCUMENTOS'
         return '✅ OK'
 
-df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+    df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
 invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
     
