@@ -394,7 +394,7 @@ df = pd.read_sql_query("SELECT * FROM embarques", conn)
 df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
     
     # --- 2. LÓGICA DE ALERTAS Y COLORES ---
-    status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
+status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
 
     def verificar_alerta(row):
         if row['estatus'] in status_criticos:
@@ -402,9 +402,9 @@ df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embar
                 return '🔴 PENDIENTE DOCUMENTOS'
         return '✅ OK'
 
-    df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
-    invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
+invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
     
     def check_pago_ff(row):
         estatus = str(row['estatus']).strip()
