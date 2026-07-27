@@ -402,7 +402,7 @@ else:
             return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;' # Rojo (Alerta/Finalizado)
     
         elif "pendiente pago" in val_str:
-            return 'background-color: #FFF3CD; color: #856404; font-weight: bold;' # Amarillo Ámbar (Precaución)
+            return 'background-color: #FFFDE7; color: #856404; font-weight: bold;' # Amarillo muy claro
         
         elif "en producción" in val_str:
             return 'background-color: #D1ECF1; color: #0C5460; font-weight: bold;' # Turquesa claro (En proceso)
