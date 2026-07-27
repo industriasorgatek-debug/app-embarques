@@ -412,7 +412,7 @@ def check_pago_ff(row):
             return '✅ No Aplica / Pagado'
         return '🟢 Flete Pagado' if row['num_invoice'] in invoices_con_pago_ff else '⚠️ PENDIENTE FLETE'
 
-    df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
+df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
     # --- 3. PREPARACIÓN DE VISUALIZACIÓN ---
     base_cols = ['num_invoice', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
@@ -422,8 +422,8 @@ def check_pago_ff(row):
         base_cols += ['pago_flete_status', 'alerta_exoneracion']
         base_names += ['Estado Flete', 'Alerta Exon.']
     
-    df_display = df[base_cols].copy()
-    df_display.columns = base_names
+df_display = df[base_cols].copy()
+df_display.columns = base_names
 
 def highlight_status(val):
         val_str = str(val).lower().strip()
