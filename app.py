@@ -10,7 +10,7 @@ from datetime import date
 # -------------------------------------------------------------
 st.set_page_config(page_title="Control de Embarques", layout="wide")
     # ----- LEYENDA DE ESTATUS -----
-    st.markdown("### 📋 Leyenda de Estatus")
+        st.markdown("### 📋 Leyenda de Estatus")
     
     col1, col2, col3, col4 = st.columns(4)
     
