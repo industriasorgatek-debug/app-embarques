@@ -359,6 +359,7 @@ else:
         st.rerun()
 
     conn = sqlite3.connect(DB_PATH)
+    st.title("🚢 Control de Embarques")
     # --- 1. CARGA DE DATOS ---
     df = pd.read_sql_query("SELECT * FROM embarques", conn)
     df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
