@@ -323,28 +323,28 @@ if not st.session_state.authenticated:
                     st.session_state.authenticated = True
                     st.session_state.user_role = PINS[pin_input]["role"]
                     st.session_state.user_dept = PINS[pin_input]["dept"]
-                    st.rerun()
+                    st.rerun()   # <--- st.rerun() (no st.return())
                 else:
                     st.error("❌ PIN incorrecto.")
 
 # --- PANTALLA SISTEMA ---
 else:
-    st.sidebar.title("🚢 Menú Principal")
-    st.sidebar.markdown(f"**Usuario:** {st.session_state.user_dept}")
-    
+    st.sidebar.title("🛡️ Menú Principal")
+    st.sidebar.markdown(f"**Usuario**: {st.session_state.user_dept}")
+
     role = st.session_state.user_role
-    
+
     # Definición de opciones por rol
     if role == "admin":  # Compras
         options = [
-            "📋 Control de Embarques", 
-            "💳 Módulo de Pagos Internacionales",
-            "📊 Carga Masiva (Excel/CSV)", 
-            "➕ Cargar Nuevo Embarque", 
-            "✏️ Editar / Actualizar Embarque"
+            "Control de Embarques",
+            "Módulo de Pagos Internacionales",
+            "Carga Masiva (Excel/CSV)",
+            "Cargar Nuevo Embarque",
+            "Editar / Actualizar Embarque"
         ]
     else:  # Almacén y Administración
-        options = ["📋 Control de Embarques"]
+        options = ["Control de Embarques"]
 
     menu = st.sidebar.radio("Navegación", options)
 
@@ -354,14 +354,59 @@ else:
         st.session_state.user_role = None
         st.session_state.user_dept = None
         st.session_state.editing_invoice = None
-        st.rerun()
+        st.rerun()   # <--- CORREGIDO: rerun, no return
 
+    # --- CONEXIÓN A LA BASE DE DATOS ---
     conn = sqlite3.connect(DB_PATH)
-    st.title("🚢 Control de Embarques")
-       
-    # --- 1. CARGA DE DATOS ---
-df = pd.read_sql_query("SELECT * FROM embarques", conn)
-df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
+
+    # --- AHORA LOS MÓDULOS SEGÚN EL MENÚ ---
+    if menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
+        # ... (código de carga masiva)
+        pass
+
+    elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
+        # ... (código de nuevo embarque)
+        pass
+
+    elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
+        # ... (código de editar)
+        pass
+
+    elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
+        # ... (código de pagos)
+        pass
+
+    else:   # <--- BLOQUE CORRESPONDIENTE A "Control de Embarques"
+        st.title("🛡️ Control de Embarques")   # <--- TÍTULO AQUÍ
+
+        # ----- LEYENDA DE ESTATUS (opcional) -----
+        st.markdown("### 📋 Leyenda de Estatus")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.markdown("🟢 **Pendiente Pago**")
+            st.caption("Esperando el primer pago al fabricante")
+            st.markdown("🟦 **En Producción**")
+            st.caption("Fabricación en curso")
+        with col2:
+            st.markdown("⬜ **En Tránsito 1**")
+            st.caption("Zarpe / Primer tramo")
+            st.markdown("🟦 **En Tránsito 2**")
+            st.caption("Segundo tramo en ruta")
+        with col3:
+            st.markdown("🟦 **En Tránsito 3**")
+            st.caption("Último tramo antes de aduana")
+            st.markdown("🟨 **En Aduanas**")
+            st.caption("Proceso de nacionalización")
+        with col4:
+            st.markdown("🟥 **Entregado**")
+            st.caption("Mercancía recibida en destino")
+        st.divider()
+        # ----------------------------------------
+
+        # --- 1. CARGA DE DATOS ---
+        df = pd.read_sql_query("SELECT * FROM embarques", conn)
+        df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
+        # ... (resto del código del Control de Embarques)
     
     # --- 2. LÓGICA DE ALERTAS Y COLORES ---
 status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
