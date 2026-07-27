@@ -396,7 +396,7 @@ df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embar
     # --- 2. LÓGICA DE ALERTAS Y COLORES ---
 status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
 
-    def verificar_alerta(row):
+def verificar_alerta(row):
         if row['estatus'] in status_criticos:
             if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
                 return '🔴 PENDIENTE DOCUMENTOS'
