@@ -452,7 +452,7 @@ def highlight_status(val):
         return '' # Sin color si no coincide con nada
 
     # --- 4. MOSTRAR TABLA ---
-    st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
+st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
     
     event = st.dataframe(
         df_display.style.map(highlight_status, subset=['Estatus']),
