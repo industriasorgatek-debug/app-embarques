@@ -310,7 +310,6 @@ if "editing_invoice" not in st.session_state:
 
 # --- PANTALLA LOGIN ---
 if not st.session_state.authenticated:
-    st.markdown("<h1 style='text-align: center;'>🚢 Sistema de Control de Embarques</h1>", unsafe_allow_html=True)
     st.markdown("<h4 style='text-align: center; color: gray;'>Ingrese su PIN de acceso departamental</h4>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 1, 1])
