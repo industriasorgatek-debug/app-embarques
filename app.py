@@ -126,11 +126,11 @@ def has_valid_file(path_val):
         return False
     return os.path.exists(path_str)
 
-def safe_parse_date(val):
+def get_eta_status(eta_val, estatus_val):
     # -------------------------------------------------------------
 # FUNCIONES DE VISIBILIDAD Y CONTROL LOGÍSTICO (TIMELINE Y ETA)
 # -------------------------------------------------------------
-def get_eta_status(eta_val, estatus_val):
+
     """Calcula los días restantes para la ETA y genera la alerta correspondiente"""
     if pd.isna(eta_val) or str(eta_val).strip() in ['', 'None', 'nan', 'NaT']:
         return "⚪ **ETA:** No especificada", "info"
