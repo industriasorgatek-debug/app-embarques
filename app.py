@@ -585,6 +585,22 @@ else:
 
                     st.markdown("---")
                     st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
+                    # -------------------------------------------------------------
+                    # RENDERIZADO VISUAL DEL CONTROL LOGÍSTICO (TIMELINE + ETA)
+                    # -------------------------------------------------------------
+                    # 1. Renderizar la barra visual de progreso (Timeline)
+                    st.markdown(render_timeline_html(row_data['estatus']), unsafe_allow_html=True)
+
+                    # 2. Renderizar el semáforo/alerta dinámica del ETA
+                    eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
+                    if eta_type == "error":
+                        st.error(eta_msg)
+                    elif eta_type == "warning":
+                        st.warning(eta_msg)
+                    elif eta_type == "success":
+                        st.success(eta_msg)
+                    else:
+                        st.info(eta_msg)
 
                     if role == "admin":
                         es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
