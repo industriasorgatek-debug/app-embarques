@@ -9,35 +9,6 @@ from datetime import date
 # CONFIGURACIÓN DE PÁGINA (¡DEBE SER LO PRIMERO EN EJECUTARSE!)
 # -------------------------------------------------------------
 st.set_page_config(page_title="Control de Embarques", layout="wide")
-    # ----- LEYENDA DE ESTATUS -----
-st.markdown("### 📋 Leyenda de Estatus")
-    
-col1, col2, col3, col4 = st.columns(4)
-    
-with col1:
-        st.markdown("🟢 **Pendiente Pago**")
-        st.caption("Esperando el primer pago al fabricante")
-        st.markdown("🟦 **En Producción**")
-        st.caption("Fabricación en curso")
-    
-with col2:
-        st.markdown("⬜ **En Tránsito 1**")
-        st.caption("Zarpe / Primer tramo")
-        st.markdown("🟦 **En Tránsito 2**")
-        st.caption("Segundo tramo en ruta")
-    
-with col3:
-        st.markdown("🟦 **En Tránsito 3**")
-        st.caption("Último tramo antes de aduana")
-        st.markdown("🟨 **En Aduanas**")
-        st.caption("Proceso de nacionalización")
-    
-with col4:
-        st.markdown("🟥 **Entregado**")
-        st.caption("Mercancía recibida en destino")
-    
-st.divider()  # Línea separadora
-    # ------------------------------
 
 # Importación para la generación del PDF
 from reportlab.lib.pagesizes import letter
@@ -389,6 +360,35 @@ else:
 
     conn = sqlite3.connect(DB_PATH)
     st.title("🚢 Control de Embarques")
+        # ----- LEYENDA DE ESTATUS -----
+st.markdown("### 📋 Leyenda de Estatus")
+    
+col1, col2, col3, col4 = st.columns(4)
+    
+with col1:
+        st.markdown("🟢 **Pendiente Pago**")
+        st.caption("Esperando el primer pago al fabricante")
+        st.markdown("🟦 **En Producción**")
+        st.caption("Fabricación en curso")
+    
+with col2:
+        st.markdown("⬜ **En Tránsito 1**")
+        st.caption("Zarpe / Primer tramo")
+        st.markdown("🟦 **En Tránsito 2**")
+        st.caption("Segundo tramo en ruta")
+    
+with col3:
+        st.markdown("🟦 **En Tránsito 3**")
+        st.caption("Último tramo antes de aduana")
+        st.markdown("🟨 **En Aduanas**")
+        st.caption("Proceso de nacionalización")
+    
+with col4:
+        st.markdown("🟥 **Entregado**")
+        st.caption("Mercancía recibida en destino")
+    
+st.divider()  # Línea separadora
+    # ------------------------------
     # --- 1. CARGA DE DATOS ---
     df = pd.read_sql_query("SELECT * FROM embarques", conn)
     df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
