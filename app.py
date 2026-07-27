@@ -576,7 +576,7 @@ else:
 st.markdown(render_timeline_html(row_data['estatus']), unsafe_allow_html=True)
 
                     # 2. Renderizar el semáforo/alerta dinámica del ETA
-                    eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
+eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
                     if eta_type == "error":
                         st.error(eta_msg)
                     elif eta_type == "warning":
