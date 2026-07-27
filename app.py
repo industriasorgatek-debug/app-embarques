@@ -403,69 +403,59 @@ else:
         st.divider()
         # ----------------------------------------
 
-        # --- 1. CARGA DE DATOS ---
-        df = pd.read_sql_query("SELECT * FROM embarques", conn)
-        df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
-        # ... (resto del código del Control de Embarques)
-    
-    # --- 2. LÓGICA DE ALERTAS Y COLORES ---
+# --- 1. CARGA DE DATOS ---
+df = pd.read_sql_query("SELECT * FROM embarques", conn)
+df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
+
+# --- 2. LÓGICA DE ALERTAS Y COLORES ---
 status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
 
 def verificar_alerta(row):
-        if row['estatus'] in status_criticos:
-            if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
-                return '🔴 PENDIENTE DOCUMENTOS'
-        return '✅ OK'
+    if row['estatus'] in status_criticos:
+        if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
+            return '🔴 PENDIENTE DOCUMENTOS'
+    return '✅ OK'
 
-        df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
-        invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
-    
+invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
+
 def check_pago_ff(row):
-        estatus = str(row['estatus']).strip()
-        if estatus in ['Entregado', 'Pendiente Pago']:
-            return '✅ No Aplica / Pagado'
-        return '🟢 Flete Pagado' if row['num_invoice'] in invoices_con_pago_ff else '⚠️ PENDIENTE FLETE'
+    estatus = str(row['estatus']).strip()
+    if estatus in ['Entregado', 'Pendiente Pago']:
+        return '✅ No Aplica / Pagado'
+    return '🟢 Flete Pagado' if row['num_invoice'] in invoices_con_pago_ff else '⚠️ PENDIENTE FLETE'
 
-        df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
+df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
-    # --- 3. PREPARACIÓN DE VISUALIZACIÓN ---
-        base_cols = ['num_invoice', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
-        base_names = ['N° Invoice', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
+# --- 3. PREPARACIÓN DE VISUALIZACIÓN (SIN CONTENEDOR) ---
+base_cols = ['num_invoice', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
+base_names = ['N° Invoice', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
 
-        if role == "admin":
-            base_cols += ['pago_flete_status', 'alerta_exoneracion']
-            base_names += ['Estado Flete', 'Alerta Exon.']
-    
-        df_display = df[base_cols].copy()
-        df_display.columns = base_names
+if role == "admin":
+    base_cols += ['pago_flete_status', 'alerta_exoneracion']
+    base_names += ['Estado Flete', 'Alerta Exon.']
+
+df_display = df[base_cols].copy()
+df_display.columns = base_names
 
 def highlight_status(val):
-        val_str = str(val).lower().strip()
-    
-        if "entregado" in val_str:
-            return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;' # Rojo (Alerta/Finalizado)
-    
-        elif "pendiente pago" in val_str:
-            return 'background-color: #FFFDE7; color: #856404; font-weight: bold;' # Amarillo muy claro
-        
-        elif "en producción" in val_str:
-            return 'background-color: #D1ECF1; color: #0C5460; font-weight: bold;' # Turquesa claro (En proceso)
-        
-        elif "en tránsito 1" in val_str:
-            return 'background-color: #E2E8F0; color: #1E293B; font-weight: bold;' # Azul muy claro
-        
-        elif "en tránsito 2" in val_str:
-            return 'background-color: #BFDBFE; color: #1E3A8A; font-weight: bold;' # Azul medio
-        
-        elif "en tránsito 3" in val_str:
-            return 'background-color: #60A5FA; color: #FFFFFF; font-weight: bold;' # Azul fuerte (contraste blanco)
-        
-        elif "en aduana" in val_str:
-            return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;' # Mostaza (Atención/Espera)
-        
-        return '' # Sin color si no coincide con nada
-
+    val_str = str(val).lower().strip()
+    if "entregado" in val_str:
+        return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'
+    elif "pendiente pago" in val_str:
+        return 'background-color: #FFFDE7; color: #856404; font-weight: bold;'
+    elif "en producción" in val_str:
+        return 'background-color: #D1ECF1; color: #0C5460; font-weight: bold;'
+    elif "en tránsito 1" in val_str:
+        return 'background-color: #E2E8F0; color: #1E293B; font-weight: bold;'
+    elif "en tránsito 2" in val_str:
+        return 'background-color: #BFDBFE; color: #1E3A8A; font-weight: bold;'
+    elif "en tránsito 3" in val_str:
+        return 'background-color: #60A5FA; color: #FFFFFF; font-weight: bold;'
+    elif "en aduana" in val_str:
+        return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;'
+    return ''
     # --- 4. MOSTRAR TABLA ---
 st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
     
