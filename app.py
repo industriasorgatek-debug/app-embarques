@@ -8,6 +8,7 @@ from datetime import date
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE PÁGINA (¡DEBE SER LO PRIMERO EN EJECUTARSE!)
 # -------------------------------------------------------------
+st.set_page_config(page_title="Control de Embarques", layout="wide")
 
 # Importación para la generación del PDF
 from reportlab.lib.pagesizes import letter
@@ -310,6 +311,7 @@ if "editing_invoice" not in st.session_state:
 
 # --- PANTALLA LOGIN ---
 if not st.session_state.authenticated:
+    st.markdown("<h1 style='text-align: center;'>🚢 Sistema de Control de Embarques</h1>", unsafe_allow_html=True)
     st.markdown("<h4 style='text-align: center; color: gray;'>Ingrese su PIN de acceso departamental</h4>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -323,28 +325,28 @@ if not st.session_state.authenticated:
                     st.session_state.authenticated = True
                     st.session_state.user_role = PINS[pin_input]["role"]
                     st.session_state.user_dept = PINS[pin_input]["dept"]
-                    st.rerun()   # <--- st.rerun() (no st.return())
+                    st.rerun()
                 else:
                     st.error("❌ PIN incorrecto.")
 
 # --- PANTALLA SISTEMA ---
 else:
-    st.sidebar.title("🛡️ Menú Principal")
-    st.sidebar.markdown(f"**Usuario**: {st.session_state.user_dept}")
-
+    st.sidebar.title("🚢 Menú Principal")
+    st.sidebar.markdown(f"**Usuario:** {st.session_state.user_dept}")
+    
     role = st.session_state.user_role
-
+    
     # Definición de opciones por rol
     if role == "admin":  # Compras
         options = [
-            "Control de Embarques",
-            "Módulo de Pagos Internacionales",
-            "Carga Masiva (Excel/CSV)",
-            "Cargar Nuevo Embarque",
-            "Editar / Actualizar Embarque"
+            "📋 Control de Embarques", 
+            "💳 Módulo de Pagos Internacionales",
+            "📊 Carga Masiva (Excel/CSV)", 
+            "➕ Cargar Nuevo Embarque", 
+            "✏️ Editar / Actualizar Embarque"
         ]
     else:  # Almacén y Administración
-        options = ["Control de Embarques"]
+        options = ["📋 Control de Embarques"]
 
     menu = st.sidebar.radio("Navegación", options)
 
@@ -354,112 +356,75 @@ else:
         st.session_state.user_role = None
         st.session_state.user_dept = None
         st.session_state.editing_invoice = None
-        st.rerun()   # <--- CORREGIDO: rerun, no return
+        st.rerun()
 
-    # --- CONEXIÓN A LA BASE DE DATOS ---
     conn = sqlite3.connect(DB_PATH)
-
-    # --- AHORA LOS MÓDULOS SEGÚN EL MENÚ ---
-    if menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
-        # ... (código de carga masiva)
-        pass
-
-    elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
-        # ... (código de nuevo embarque)
-        pass
-
-    elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
-        # ... (código de editar)
-        pass
-
-    elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
-        # ... (código de pagos)
-        pass
-
-    else:   # <--- BLOQUE CORRESPONDIENTE A "Control de Embarques"
-        st.title("🛡️ Control de Embarques")   # <--- TÍTULO AQUÍ
-
-        # ----- LEYENDA DE ESTATUS (opcional) -----
-        st.markdown("### 📋 Leyenda de Estatus")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.markdown("🟢 **Pendiente Pago**")
-            st.caption("Esperando el primer pago al fabricante")
-            st.markdown("🟦 **En Producción**")
-            st.caption("Fabricación en curso")
-        with col2:
-            st.markdown("⬜ **En Tránsito 1**")
-            st.caption("Zarpe / Primer tramo")
-            st.markdown("🟦 **En Tránsito 2**")
-            st.caption("Segundo tramo en ruta")
-        with col3:
-            st.markdown("🟦 **En Tránsito 3**")
-            st.caption("Último tramo antes de aduana")
-            st.markdown("🟨 **En Aduanas**")
-            st.caption("Proceso de nacionalización")
-        with col4:
-            st.markdown("🟥 **Entregado**")
-            st.caption("Mercancía recibida en destino")
-        st.divider()
-        # ----------------------------------------
-
-# --- 1. CARGA DE DATOS ---
-df = pd.read_sql_query("SELECT * FROM embarques", conn)
-df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
-
-# --- 2. LÓGICA DE ALERTAS Y COLORES ---
-status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
-
-def verificar_alerta(row):
-    if row['estatus'] in status_criticos:
-        if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
-            return '🔴 PENDIENTE DOCUMENTOS'
-    return '✅ OK'
-
-df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
-
-invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
-
-def check_pago_ff(row):
-    estatus = str(row['estatus']).strip()
-    if estatus in ['Entregado', 'Pendiente Pago']:
-        return '✅ No Aplica / Pagado'
-    return '🟢 Flete Pagado' if row['num_invoice'] in invoices_con_pago_ff else '⚠️ PENDIENTE FLETE'
-
-df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
-
-# --- 3. PREPARACIÓN DE VISUALIZACIÓN (SIN CONTENEDOR) ---
-base_cols = ['num_invoice', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
-base_names = ['N° Invoice', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
-
-if role == "admin":
-    base_cols += ['pago_flete_status', 'alerta_exoneracion']
-    base_names += ['Estado Flete', 'Alerta Exon.']
-
-df_display = df[base_cols].copy()
-df_display.columns = base_names
-
-def highlight_status(val):
-    val_str = str(val).lower().strip()
-    if "entregado" in val_str:
-        return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'
-    elif "pendiente pago" in val_str:
-        return 'background-color: #FFFDE7; color: #856404; font-weight: bold;'
-    elif "en producción" in val_str:
-        return 'background-color: #D1ECF1; color: #0C5460; font-weight: bold;'
-    elif "en tránsito 1" in val_str:
-        return 'background-color: #E2E8F0; color: #1E293B; font-weight: bold;'
-    elif "en tránsito 2" in val_str:
-        return 'background-color: #BFDBFE; color: #1E3A8A; font-weight: bold;'
-    elif "en tránsito 3" in val_str:
-        return 'background-color: #60A5FA; color: #FFFFFF; font-weight: bold;'
-    elif "en aduana" in val_str:
-        return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;'
-    return ''
-    # --- 4. MOSTRAR TABLA ---
-st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
+    # --- 1. CARGA DE DATOS ---
+    df = pd.read_sql_query("SELECT * FROM embarques", conn)
+    df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
     
-event = st.dataframe(
+    # --- 2. LÓGICA DE ALERTAS Y COLORES ---
+    status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
+
+    def verificar_alerta(row):
+        if row['estatus'] in status_criticos:
+            if row.get('recibido_co', 0) == 0 or row.get('recibido_me', 0) == 0 or row.get('recibido_bl', 0) == 0:
+                return '🔴 PENDIENTE DOCUMENTOS'
+        return '✅ OK'
+
+    df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
+
+    invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
+    
+    def check_pago_ff(row):
+        estatus = str(row['estatus']).strip()
+        if estatus in ['Entregado', 'Pendiente Pago']:
+            return '✅ No Aplica / Pagado'
+        return '🟢 Flete Pagado' if row['num_invoice'] in invoices_con_pago_ff else '⚠️ PENDIENTE FLETE'
+
+    df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
+
+    # --- 3. PREPARACIÓN DE VISUALIZACIÓN ---
+    base_cols = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
+    base_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
+
+    if role == "admin":
+        base_cols += ['pago_flete_status', 'alerta_exoneracion']
+        base_names += ['Estado Flete', 'Alerta Exon.']
+    
+    df_display = df[base_cols].copy()
+    df_display.columns = base_names
+
+    def highlight_status(val):
+        val_str = str(val).lower().strip()
+    
+        if "entregado" in val_str:
+            return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;' # Rojo (Alerta/Finalizado)
+    
+        elif "pendiente pago" in val_str:
+            return 'background-color: #FFFDE7; color: #856404; font-weight: bold;' # Amarillo muy claro
+        
+        elif "en producción" in val_str:
+            return 'background-color: #D1ECF1; color: #0C5460; font-weight: bold;' # Turquesa claro (En proceso)
+        
+        elif "en tránsito 1" in val_str:
+            return 'background-color: #E2E8F0; color: #1E293B; font-weight: bold;' # Azul muy claro
+        
+        elif "en tránsito 2" in val_str:
+            return 'background-color: #BFDBFE; color: #1E3A8A; font-weight: bold;' # Azul medio
+        
+        elif "en tránsito 3" in val_str:
+            return 'background-color: #60A5FA; color: #FFFFFF; font-weight: bold;' # Azul fuerte (contraste blanco)
+        
+        elif "en aduana" in val_str:
+            return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;' # Mostaza (Atención/Espera)
+        
+        return '' # Sin color si no coincide con nada
+
+    # --- 4. MOSTRAR TABLA ---
+    st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
+    
+    event = st.dataframe(
         df_display.style.map(highlight_status, subset=['Estatus']),
         use_container_width=True,
         hide_index=True,
@@ -467,8 +432,8 @@ event = st.dataframe(
         selection_mode="single-row"
     )
 
-selected_rows = event.selection.get("rows", [])
-if selected_rows:
+    selected_rows = event.selection.get("rows", [])
+    if selected_rows:
                 row_idx = selected_rows[0]
                 selected_invoice = df_display.iloc[row_idx]['N° Invoice']
                 row_data = df[df['num_invoice'] == selected_invoice].iloc[0]
@@ -635,7 +600,7 @@ if selected_rows:
                         )
 
          # Formulario de Edición Rápida
-if role == "admin" and st.session_state.editing_invoice:
+    if role == "admin" and st.session_state.editing_invoice:
         st.markdown("---")
         st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
         row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
@@ -677,11 +642,11 @@ if role == "admin" and st.session_state.editing_invoice:
 
             submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
             
-            if submit_q_edit:
-                p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
-                p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
-                p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
-                p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
+        if submit_q_edit:
+            p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
+            p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
+            p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
+            p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
             
             c = conn.cursor()
             c.execute('''
@@ -701,7 +666,7 @@ if role == "admin" and st.session_state.editing_invoice:
             st.success("✅ ¡Embarque actualizado con éxito!")
             st.rerun()
     # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
-elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
+    elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
         st.title("💳 Registro y Control de Pagos Internacionales")
         st.caption("Módulo exclusivo para Compras: Administra, modifica y elimina transferencias realizadas")
 
@@ -851,7 +816,7 @@ elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
                 )
 
     # --- VISTA 3: CARGA MASIVA ---
-elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
+    elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
         st.title("📊 Carga Masiva de Embarques")
         sample_data = pd.DataFrame([{
             "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
@@ -906,7 +871,7 @@ elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
                 st.error(f"Error procesando archivo: {e}")
 
     # --- VISTA 4: REGISTRO MANUAL ---
-elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
+    elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
         st.title("➕ Registrar Nuevo Embarque Manual")
         with st.form("form_embarque", clear_on_submit=True):
             col1, col2, col3 = st.columns(3)
@@ -956,7 +921,7 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
                         st.error(f"❌ La Invoice {num_invoice} ya existe.")
 
     # --- VISTA 5: EDITAR EMBARQUE ---
-elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
+    elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
         st.title("✏️ Editar Embarque Existente")
         df = pd.read_sql_query("SELECT * FROM embarques", conn)
         if df.empty:
@@ -1030,4 +995,5 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                     conn.commit()
                     st.success(f"✅ Embarque Invoice {selected_invoice} actualizado.")
 
-conn.close()
+    conn.close()
+
