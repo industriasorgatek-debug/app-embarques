@@ -803,9 +803,9 @@ elif role == "admin":
           naviera_e, num_contenedor_e, str(eta_e), estatus_e,
           p_pack, p_inv, p_fle, p_bl, monto_factura_e, st.session_state.editing_invoice))
     conn.commit()
-        st.session_state.editing_invoice = None
-        st.success("✅ ¡Embarque actualizado con éxito!")
-        st.rerun()
+            st.session_state.editing_invoice = None
+            st.success("✅ ¡Embarque actualizado con éxito!")
+            st.rerun()
 
     # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
     elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
