@@ -586,14 +586,14 @@ elif eta_type == "success":
 else:
     st.info(eta_msg)
 
-                    if role == "admin":
-                        es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
-                        tiene_pago_ff = selected_invoice in invoices_con_pago_ff
+if role == "admin":
+    es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
+    tiene_pago_ff = selected_invoice in invoices_con_pago_ff
 
-                        if not es_omito_flete and not tiene_pago_ff:
-                            st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
-                        elif tiene_pago_ff:
-                            st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
+if not es_omito_flete and not tiene_pago_ff:
+        st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
+    elif tiene_pago_ff:
+        st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
 
                     # 1. ROL ALMACÉN
                     if role == "almacen":
