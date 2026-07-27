@@ -434,8 +434,8 @@ def check_pago_ff(row):
         base_names = ['N° Invoice', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
 
         if role == "admin":
-        base_cols += ['pago_flete_status', 'alerta_exoneracion']
-        base_names += ['Estado Flete', 'Alerta Exon.']
+            base_cols += ['pago_flete_status', 'alerta_exoneracion']
+            base_names += ['Estado Flete', 'Alerta Exon.']
     
         df_display = df[base_cols].copy()
         df_display.columns = base_names
