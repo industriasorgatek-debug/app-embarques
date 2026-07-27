@@ -20,23 +20,23 @@ with col1:
         st.markdown("🟦 **En Producción**")
         st.caption("Fabricación en curso")
     
-    with col2:
+with col2:
         st.markdown("⬜ **En Tránsito 1**")
         st.caption("Zarpe / Primer tramo")
         st.markdown("🟦 **En Tránsito 2**")
         st.caption("Segundo tramo en ruta")
     
-    with col3:
+with col3:
         st.markdown("🟦 **En Tránsito 3**")
         st.caption("Último tramo antes de aduana")
         st.markdown("🟨 **En Aduanas**")
         st.caption("Proceso de nacionalización")
     
-    with col4:
+with col4:
         st.markdown("🟥 **Entregado**")
         st.caption("Mercancía recibida en destino")
     
-    st.divider()  # Línea separadora
+st.divider()  # Línea separadora
     # ------------------------------
 
 # Importación para la generación del PDF
