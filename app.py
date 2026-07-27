@@ -958,59 +958,59 @@ elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
             )
 
     # --- VISTA 3: CARGA MASIVA ---
-    elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
-        st.title("📊 Carga Masiva de Embarques")
-        sample_data = pd.DataFrame([{
-            "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
-            "naviera": "MSC", "fabricante": "Tech Corp", "producto": "Lámparas LED",
-            "origen": "China", "destino": "Venezuela", "eta": "2026-08-15",
-            "estatus": "Pendiente Pago", "agente_carga": "DHL", "agente_aduanas": "Aduanas C.A.",
-            "consignatario": "Industrias Orgatek", "monto_factura": 25000.00
-        }])
-        csv_sample = sample_data.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Descargar Plantilla de Ejemplo (CSV)", csv_sample, "plantilla_embarques.csv", "text/csv")
-        st.markdown("---")
-        uploaded_file = st.file_uploader("Selecciona tu archivo Excel (.xlsx) o CSV", type=["xlsx", "csv"])
+elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
+    st.title("📊 Carga Masiva de Embarques")
+    sample_data = pd.DataFrame([{
+        "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
+        "naviera": "MSC", "fabricante": "Tech Corp", "producto": "Lámparas LED",
+        "origen": "China", "destino": "Venezuela", "eta": "2026-08-15",
+        "estatus": "Pendiente Pago", "agente_carga": "DHL", "agente_aduanas": "Aduanas C.A.",
+        "consignatario": "Industrias Orgatek", "monto_factura": 25000.00
+    }])
+    csv_sample = sample_data.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 Descargar Plantilla de Ejemplo (CSV)", csv_sample, "plantilla_embarques.csv", "text/csv")
+    st.markdown("---")
+    uploaded_file = st.file_uploader("Selecciona tu archivo Excel (.xlsx) o CSV", type=["xlsx", "csv"])
 
-        if uploaded_file is not None:
-            try:
-                df_upload = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-                df_upload.columns = df_upload.columns.str.strip().str.lower()
-                col_map = {'invoice': 'num_invoice', 'empresa': 'fabricante', 'agente': 'agente_carga', 'ag aduana': 'agente_aduanas', 'consignee': 'consignatario', 'estimado': 'eta', 'org /bl / booking': 'num_bl', 'monto': 'monto_factura'}
-                df_upload.rename(columns=col_map, inplace=True)
-                st.dataframe(df_upload.head(10), use_container_width=True)
+    if uploaded_file is not None:
+        try:
+            df_upload = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+            df_upload.columns = df_upload.columns.str.strip().str.lower()
+            col_map = {'invoice': 'num_invoice', 'empresa': 'fabricante', 'agente': 'agente_carga', 'ag aduana': 'agente_aduanas', 'consignee': 'consignatario', 'estimado': 'eta', 'org /bl / booking': 'num_bl', 'monto': 'monto_factura'}
+            df_upload.rename(columns=col_map, inplace=True)
+            st.dataframe(df_upload.head(10), use_container_width=True)
 
-                if 'num_invoice' in df_upload.columns and st.button("🚀 Procesar e Importar a Base de Datos", type="primary"):
-                    c = conn.cursor()
-                    n_up, n_new = 0, 0
-                    for _, row in df_upload.iterrows():
-                        inv = str(row.get('num_invoice', '')).strip()
-                        if not inv or inv == 'nan': continue
-                        bl = str(row.get('num_bl', '')) if pd.notna(row.get('num_bl')) else ''
-                        cont = str(row.get('num_contenedor', '')) if pd.notna(row.get('num_contenedor')) else ''
-                        nav = str(row.get('naviera', '')) if pd.notna(row.get('naviera')) else ''
-                        fab = str(row.get('fabricante', '')) if pd.notna(row.get('fabricante')) else ''
-                        prod = str(row.get('producto', '')) if pd.notna(row.get('producto')) else ''
-                        ori = str(row.get('origen', 'China')) if pd.notna(row.get('origen')) else 'China'
-                        des = str(row.get('destino', 'Venezuela')) if pd.notna(row.get('destino')) else 'Venezuela'
-                        eta = str(row.get('eta', '')) if pd.notna(row.get('eta')) else ''
-                        est = str(row.get('estatus', 'Pendiente Pago')) if pd.notna(row.get('estatus')) else 'Pendiente Pago'
-                        ag_c = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) else ''
-                        ag_a = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
-                        cons = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
-                        monto = float(row.get('monto_factura', 0.0)) if pd.notna(row.get('monto_factura')) else 0.0
+            if 'num_invoice' in df_upload.columns and st.button("🚀 Procesar e Importar a Base de Datos", type="primary"):
+                c = conn.cursor()
+                n_up, n_new = 0, 0
+                for _, row in df_upload.iterrows():
+                    inv = str(row.get('num_invoice', '')).strip()
+                    if not inv or inv == 'nan': continue
+                    bl = str(row.get('num_bl', '')) if pd.notna(row.get('num_bl')) else ''
+                    cont = str(row.get('num_contenedor', '')) if pd.notna(row.get('num_contenedor')) else ''
+                    nav = str(row.get('naviera', '')) if pd.notna(row.get('naviera')) else ''
+                    fab = str(row.get('fabricante', '')) if pd.notna(row.get('fabricante')) else ''
+                    prod = str(row.get('producto', '')) if pd.notna(row.get('producto')) else ''
+                    ori = str(row.get('origen', 'China')) if pd.notna(row.get('origen')) else 'China'
+                    des = str(row.get('destino', 'Venezuela')) if pd.notna(row.get('destino')) else 'Venezuela'
+                    eta = str(row.get('eta', '')) if pd.notna(row.get('eta')) else ''
+                    est = str(row.get('estatus', 'Pendiente Pago')) if pd.notna(row.get('estatus')) else 'Pendiente Pago'
+                    ag_c = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) else ''
+                    ag_a = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
+                    cons = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
+                    monto = float(row.get('monto_factura', 0.0)) if pd.notna(row.get('monto_factura')) else 0.0
 
-                        c.execute("SELECT id FROM embarques WHERE num_invoice = ?", (inv,))
-                        if c.fetchone():
-                            c.execute('''UPDATE embarques SET num_bl=?, num_contenedor=?, naviera=?, fabricante=?, producto=?, origen=?, destino=?, eta=?, estatus=?, agente_carga=?, agente_aduanas=?, consignatario=?, monto_factura=? WHERE num_invoice=?''', (bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, monto, inv))
-                            n_up += 1
-                        else:
-                            c.execute('''INSERT INTO embarques (num_invoice, num_bl, num_contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario, monto_factura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (inv, bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, monto))
-                            n_new += 1
-                    conn.commit()
-                    st.success(f"✅ Éxito: {n_new} nuevos registros, {n_up} actualizados.")
-            except Exception as e:
-                st.error(f"Error procesando archivo: {e}")
+                    c.execute("SELECT id FROM embarques WHERE num_invoice = ?", (inv,))
+                    if c.fetchone():
+                        c.execute('''UPDATE embarques SET num_bl=?, num_contenedor=?, naviera=?, fabricante=?, producto=?, origen=?, destino=?, eta=?, estatus=?, agente_carga=?, agente_aduanas=?, consignatario=?, monto_factura=? WHERE num_invoice=?''', (bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, monto, inv))
+                        n_up += 1
+                    else:
+                        c.execute('''INSERT INTO embarques (num_invoice, num_bl, num_contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario, monto_factura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (inv, bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, monto))
+                        n_new += 1
+                conn.commit()
+                st.success(f"✅ Éxito: {n_new} nuevos registros, {n_up} actualizados.")
+        except Exception as e:
+            st.error(f"Error procesando archivo: {e}")
 
     # --- VISTA 4: REGISTRO MANUAL ---
     elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
