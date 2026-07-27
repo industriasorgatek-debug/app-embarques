@@ -454,7 +454,7 @@ def highlight_status(val):
     # --- 4. MOSTRAR TABLA ---
 st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
     
-    event = st.dataframe(
+event = st.dataframe(
         df_display.style.map(highlight_status, subset=['Estatus']),
         use_container_width=True,
         hide_index=True,
