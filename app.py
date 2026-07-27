@@ -433,12 +433,12 @@ def check_pago_ff(row):
 base_cols = ['num_invoice', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
 base_names = ['N° Invoice', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
 
-if role == "admin":
+        if role == "admin":
     base_cols += ['pago_flete_status', 'alerta_exoneracion']
     base_names += ['Estado Flete', 'Alerta Exon.']
     
-df_display = df[base_cols].copy()
-df_display.columns = base_names
+    df_display = df[base_cols].copy()
+    df_display.columns = base_names
 
 def highlight_status(val):
         val_str = str(val).lower().strip()
