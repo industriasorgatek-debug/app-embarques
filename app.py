@@ -14,7 +14,7 @@ st.markdown("### 📋 Leyenda de Estatus")
     
 col1, col2, col3, col4 = st.columns(4)
     
-    with col1:
+with col1:
         st.markdown("🟢 **Pendiente Pago**")
         st.caption("Esperando el primer pago al fabricante")
         st.markdown("🟦 **En Producción**")
