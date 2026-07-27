@@ -419,7 +419,7 @@ def verificar_alerta(row):
 
         df['alerta_exoneracion'] = df.apply(verificar_alerta, axis=1)
 
-invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
+        invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
     
 def check_pago_ff(row):
         estatus = str(row['estatus']).strip()
@@ -427,7 +427,7 @@ def check_pago_ff(row):
             return '✅ No Aplica / Pagado'
         return '🟢 Flete Pagado' if row['num_invoice'] in invoices_con_pago_ff else '⚠️ PENDIENTE FLETE'
 
-df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
+        df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
     # --- 3. PREPARACIÓN DE VISUALIZACIÓN ---
 base_cols = ['num_invoice', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
