@@ -390,8 +390,8 @@ with col4:
 st.divider()  # Línea separadora
     # ------------------------------
     # --- 1. CARGA DE DATOS ---
-    df = pd.read_sql_query("SELECT * FROM embarques", conn)
-    df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
+df = pd.read_sql_query("SELECT * FROM embarques", conn)
+df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
     
     # --- 2. LÓGICA DE ALERTAS Y COLORES ---
     status_criticos = ['En Tránsito 1', 'En Tránsito 2', 'En Tránsito 3', 'En Aduanas']
