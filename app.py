@@ -592,22 +592,22 @@ if role == "admin":
 
 if not es_omito_flete and not tiene_pago_ff:
         st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
-    elif tiene_pago_ff:
-        st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
+elif tiene_pago_ff:
+    st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
 
-                    # 1. ROL ALMACÉN
-                    if role == "almacen":
-                        st.subheader("📦 Gestión de Almacén")
+# 1. ROL ALMACÉN
+if role == "almacen":
+    st.subheader("📦 Gestión de Almacén")
                         
-                        if has_valid_file(row_data['path_packing']):
-                            with open(row_data['path_packing'], "rb") as f:
-                                st.download_button(
-                                    label=f"⬇️ Descargar Packing List ({selected_invoice})",
-                                    data=f,
-                                    file_name=os.path.basename(row_data['path_packing']),
-                                    mime="application/octet-stream",
-                                    type="primary",
-                                    key=f"main_pack_{selected_invoice}"
+    if has_valid_file(row_data['path_packing']):
+        with open(row_data['path_packing'], "rb") as f:
+            st.download_button(
+                label=f"⬇️ Descargar Packing List ({selected_invoice})",
+                data=f,
+                file_name=os.path.basename(row_data['path_packing']),
+                mime="application/octet-stream",
+                type="primary",
+                key=f"main_pack_{selected_invoice}"
                                 )
                         else:
                             st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
