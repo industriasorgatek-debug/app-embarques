@@ -176,10 +176,8 @@ def safe_parse_date(val):
         return date.today()
 
 def generar_zip_expediente(num_invoice, row_data, conn):
-    """Empaqueta todos los archivos disponibles del embarque en un único archivo ZIP"""
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        # Documentos Principales
         core_docs = [
             ('Packing_List', row_data['path_packing']),
             ('Factura_Comercial', row_data['path_invoice']),
@@ -190,7 +188,6 @@ def generar_zip_expediente(num_invoice, row_data, conn):
             if has_valid_file(path):
                 zip_file.write(path, arcname=f"Principales/{label}_{os.path.basename(path)}")
         
-        # Documentos Anexos / Dinámicos
         c = conn.cursor()
         c.execute("SELECT tipo_documento, path_archivo, nombre_archivo FROM documentos_embarque WHERE num_invoice = ?", (num_invoice,))
         extra_docs = c.fetchall()
@@ -562,70 +559,30 @@ if menu == "📋 Control de Embarques":
 
                 st.divider()
 
-                # ALERTAS FLETE (SOLO ADMIN)
-                if role == "admin":
-                    es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
-                    tiene_pago_ff = selected_invoice in invoices_con_pago_ff
-                    if not es_omito_flete and not tiene_pago_ff:
-                        st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
-                    elif tiene_pago_ff:
-                        st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
-
-                # -------------------------------------------------------------
-                # SECCIÓN 1: EXPEDIENTE DIGITAL BÁSICO (DOCUMENTOS PRINCIPALES)
-                # -------------------------------------------------------------
-                st.subheader("💼 Expediente Digital del Embarque (Documentos Principales)")
-                
-                # Para Administración, Compras y Almacén (Documentos Fijos)
-                docs_principales = [
-                    ("Packing List", row_data['path_packing']),
-                    ("Factura Comercial (Invoice)", row_data['path_invoice']),
-                    ("Factura de Flete", row_data['path_flete']),
-                    ("Bill of Lading (BL)", row_data['path_bl'])
-                ]
-                
-                col_d1, col_d2 = st.columns(2)
-                for idx, (label, path) in enumerate(docs_principales):
-                    col_target = col_d1 if idx % 2 == 0 else col_d2
-                    with col_target:
-                        if has_valid_file(path):
-                            with open(path, "rb") as f:
-                                st.download_button(
-                                    label=f"⬇️ Descargar {label}",
-                                    data=f,
-                                    file_name=os.path.basename(path),
-                                    mime="application/octet-stream",
-                                    key=f"main_{role}_{label}_{selected_invoice}"
-                                )
-                        else:
-                            st.caption(f"❌ {label}: No cargado")
-
-                # Accion Operativa Almacen
+                # =============================================================
+                # 1. ROL ALMACÉN (ACCESO DOCUMENTAL Y OPERATIVO RESTRINGIDO)
+                # =============================================================
                 if role == "almacen":
-                    st.markdown("---")
-                    st.subheader("📦 Módulo de Almacén: Cargar Fotos de Descarga")
+                    st.subheader("📦 Módulo de Gestión de Almacén")
                     
-                    with st.form(f"form_almacen_upload_{selected_invoice}"):
-                        uploaded_descarga_files = st.file_uploader(
-                            "Subir Fotos o Reporte de Descarga (Múltiples archivos permitidos)", 
-                            accept_multiple_files=True,
-                            key=f"upload_almacen_files_{selected_invoice}"
-                        )
-                        sub_almacen = st.form_submit_button("📤 Subir Archivos de Descarga", type="primary")
-                        if sub_almacen and uploaded_descarga_files:
-                            c = conn.cursor()
-                            for f_up in uploaded_descarga_files:
-                                f_path, f_name = save_extra_file(f_up, selected_invoice, "Fotos de Descarga")
-                                c.execute('''
-                                    INSERT INTO documentos_embarque (num_invoice, tipo_documento, nombre_archivo, path_archivo, fecha_subida, subido_por)
-                                    VALUES (?, ?, ?, ?, ?, ?)
-                                ''', (selected_invoice, "Fotos de Descarga", f_name, f_path, str(date.today()), "Almacén"))
-                            conn.commit()
-                            st.success("✅ Fotos/Archivos de descarga guardados con éxito.")
-                            st.rerun()
+                    # 1. Descarga Exclusiva del Packing List
+                    if has_valid_file(row_data['path_packing']):
+                        with open(row_data['path_packing'], "rb") as f:
+                            st.download_button(
+                                label=f"⬇️ Descargar Packing List ({selected_invoice})",
+                                data=f,
+                                file_name=os.path.basename(row_data['path_packing']),
+                                mime="application/octet-stream",
+                                type="primary",
+                                key=f"main_pack_{selected_invoice}"
+                            )
+                    else:
+                        st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
+                    # 2. Marcar como Entregado si está en Aduanas
                     if row_data['estatus'] == "En Aduanas":
-                        st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado'.")
+                        st.markdown("---")
+                        st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado' al recibirlo en almacén.")
                         if st.button("✅ Marcar como ENTREGADO", type="primary"):
                             c = conn.cursor()
                             c.execute("UPDATE embarques SET estatus = 'Entregado' WHERE num_invoice = ?", (selected_invoice,))
@@ -633,14 +590,119 @@ if menu == "📋 Control de Embarques":
                             st.success("¡Estatus actualizado a 'Entregado' con éxito!")
                             st.rerun()
 
-                # -------------------------------------------------------------
-                # SECCIÓN 2: EXPEDIENTE DIGITAL ANEXO Y MULTI-DOCUMENTOS (SOLO COMPRAS / ADMIN)
-                # -------------------------------------------------------------
-                if role == "admin":
+                    # 3. Cargar Fotos de Descarga (ACTIVO SOLO SI EL ESTATUS ES "ENTREGADO")
                     st.markdown("---")
-                    st.subheader("📁 Expediente Anexo y Documentación Adicional (Módulo Compras)")
+                    if row_data['estatus'] == "Entregado":
+                        st.subheader("📸 Cargar Fotos / Reporte de Descarga")
+                        with st.form(f"form_almacen_upload_{selected_invoice}"):
+                            uploaded_descarga_files = st.file_uploader(
+                                "Subir Fotos o Reporte de Descarga (Múltiples archivos permitidos)", 
+                                accept_multiple_files=True,
+                                key=f"upload_almacen_files_{selected_invoice}"
+                            )
+                            sub_almacen = st.form_submit_button("📤 Subir Fotos de Descarga", type="primary")
+                            if sub_almacen and uploaded_descarga_files:
+                                c = conn.cursor()
+                                for f_up in uploaded_descarga_files:
+                                    f_path, f_name = save_extra_file(f_up, selected_invoice, "Fotos de Descarga")
+                                    c.execute('''
+                                        INSERT INTO documentos_embarque (num_invoice, tipo_documento, nombre_archivo, path_archivo, fecha_subida, subido_por)
+                                        VALUES (?, ?, ?, ?, ?, ?)
+                                    ''', (selected_invoice, "Fotos de Descarga", f_name, f_path, str(date.today()), "Almacén"))
+                                conn.commit()
+                                st.success("✅ Fotos/Archivos de descarga guardados con éxito.")
+                                st.rerun()
+                    else:
+                        st.info("🔒 **Carga de Fotos de Descarga Inactiva:** La opción para subir fotos se habilitará cuando el embarque sea marcado como **'Entregado'**.")
+
+                    # 4. Ver y descargar fotos que Almacén haya subido previamente
+                    df_fotos_almacen = pd.read_sql_query(
+                        "SELECT * FROM documentos_embarque WHERE num_invoice = ? AND tipo_documento = 'Fotos de Descarga'", 
+                        conn, params=(selected_invoice,)
+                    )
+                    if not df_fotos_almacen.empty:
+                        st.markdown("##### 📸 Fotos y Reportes de Descarga Registrados:")
+                        for idx_f, f_row in df_fotos_almacen.iterrows():
+                            c_f1, c_f2, c_f3 = st.columns([3, 2, 1])
+                            c_f1.write(f"📄 {f_row['nombre_archivo']}")
+                            c_f2.caption(f"📅 {f_row['fecha_subida']}")
+                            with c_f3:
+                                if has_valid_file(f_row['path_archivo']):
+                                    with open(f_row['path_archivo'], "rb") as f_img:
+                                        st.download_button(
+                                            label="⬇️ Descargar",
+                                            data=f_img,
+                                            file_name=f_row['nombre_archivo'],
+                                            mime="application/octet-stream",
+                                            key=f"dl_alm_{f_row['id']}"
+                                        )
+
+                # =============================================================
+                # 2. ROL ADMINISTRACIÓN (4 DOCUMENTOS PRINCIPALES SOLAMENTE)
+                # =============================================================
+                elif role == "admon":
+                    st.subheader("💼 Expediente Digital del Embarque")
+                    docs_principales = [
+                        ("Packing List", row_data['path_packing']),
+                        ("Factura Comercial (Invoice)", row_data['path_invoice']),
+                        ("Factura de Flete", row_data['path_flete']),
+                        ("Bill of Lading (BL)", row_data['path_bl'])
+                    ]
+                    col_d1, col_d2 = st.columns(2)
+                    for idx, (label, path) in enumerate(docs_principales):
+                        col_target = col_d1 if idx % 2 == 0 else col_d2
+                        with col_target:
+                            if has_valid_file(path):
+                                with open(path, "rb") as f:
+                                    st.download_button(
+                                        label=f"⬇️ Descargar {label}",
+                                        data=f,
+                                        file_name=os.path.basename(path),
+                                        mime="application/octet-stream",
+                                        key=f"main_admon_{label}_{selected_invoice}"
+                                    )
+                            else:
+                                st.caption(f"❌ {label}: No cargado")
+
+                # =============================================================
+                # 3. ROL COMPRAS (ADMINISTRADOR COMPLETO)
+                # =============================================================
+                elif role == "admin":
+                    # Alertas de Flete
+                    es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
+                    tiene_pago_ff = selected_invoice in invoices_con_pago_ff
+                    if not es_omito_flete and not tiene_pago_ff:
+                        st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
+                    elif tiene_pago_ff:
+                        st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
+
+                    st.subheader("💼 Expediente Digital del Embarque (Documentos Principales)")
+                    docs_principales = [
+                        ("Packing List", row_data['path_packing']),
+                        ("Factura Comercial (Invoice)", row_data['path_invoice']),
+                        ("Factura de Flete", row_data['path_flete']),
+                        ("Bill of Lading (BL)", row_data['path_bl'])
+                    ]
+                    col_d1, col_d2 = st.columns(2)
+                    for idx, (label, path) in enumerate(docs_principales):
+                        col_target = col_d1 if idx % 2 == 0 else col_d2
+                        with col_target:
+                            if has_valid_file(path):
+                                with open(path, "rb") as f:
+                                    st.download_button(
+                                        label=f"⬇️ Descargar {label}",
+                                        data=f,
+                                        file_name=os.path.basename(path),
+                                        mime="application/octet-stream",
+                                        key=f"main_admin_{label}_{selected_invoice}"
+                                    )
+                            else:
+                                st.caption(f"❌ {label}: No cargado")
+
+                    st.markdown("---")
+                    st.subheader("📁 Expediente Anexo y Documentación Adicional")
                     
-                    # Formulario para subir múltiples documentos adicionales
+                    # Formulario Carga Anexos
                     with st.expander("➕ **Adjuntar Nuevos Documentos al Expediente**", expanded=False):
                         with st.form(f"form_extra_docs_{selected_invoice}"):
                             c_exp1, c_exp2 = st.columns(2)
@@ -666,9 +728,8 @@ if menu == "📋 Control de Embarques":
                                     st.success(f"✅ ¡{len(extra_files)} documento(s) adjuntado(s) exitosamente como '{tipo_doc_sel}'!")
                                     st.rerun()
 
-                    # Mostrar documentos anexos cargados
+                    # Listado Anexos Cargados
                     df_extra_docs = pd.read_sql_query("SELECT * FROM documentos_embarque WHERE num_invoice = ?", conn, params=(selected_invoice,))
-                    
                     if not df_extra_docs.empty:
                         st.markdown("##### 📄 Archivos Anexos Registrados en este Embarque:")
                         for idx_doc, doc_row in df_extra_docs.iterrows():
@@ -698,7 +759,7 @@ if menu == "📋 Control de Embarques":
                                     st.rerun()
                             st.divider()
 
-                    # BOTÓN DE DESCARGA ZIP COMPLETO (SOLO COMPRAS)
+                    # BOTÓN DESCARGA ZIP COMPLETO
                     st.markdown("##### 📦 Descarga Masiva del Expediente")
                     zip_buffer = generar_zip_expediente(selected_invoice, row_data, conn)
                     st.download_button(
@@ -711,7 +772,7 @@ if menu == "📋 Control de Embarques":
                         key=f"btn_zip_{selected_invoice}"
                     )
 
-                    # BALANCE FINANCIERO DE FÁBRICA
+                    # BALANCE FINANCIERO FÁBRICA
                     st.markdown("---")
                     st.subheader(f"💰 Balance Financiero de Fábrica ({selected_invoice})")
                     df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
