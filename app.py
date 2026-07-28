@@ -558,7 +558,7 @@ else:
                     st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
 # --- AHORA LLAMAS A LAS DOS FUNCIONES AQUÍ ---
-render_timeline(row_data['estatus'])
+                    render_timeline(row_data['estatus'])
 
 eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
 if eta_type == "error":
