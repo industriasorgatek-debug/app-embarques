@@ -573,7 +573,7 @@ else:
                     # RENDERIZADO VISUAL DEL CONTROL LOGÍSTICO (TIMELINE + ETA)
                     # -------------------------------------------------------------
                     # 1. Renderizar la barra visual de progreso (Timeline)
-st.markdown(render_timeline_html(row_data['estatus']), unsafe_allow_html=True)
+    st.markdown(render_timeline_html(row_data['estatus']), unsafe_allow_html=True)
 
                     # 2. Renderizar el semáforo/alerta dinámica del ETA
 eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
