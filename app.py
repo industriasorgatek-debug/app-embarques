@@ -565,7 +565,6 @@ if menu == "📋 Control de Embarques":
                 if role == "almacen":
                     st.subheader("📦 Módulo de Gestión de Almacén")
                     
-                    # 1. Descarga Exclusiva del Packing List
                     if has_valid_file(row_data['path_packing']):
                         with open(row_data['path_packing'], "rb") as f:
                             st.download_button(
@@ -579,7 +578,6 @@ if menu == "📋 Control de Embarques":
                     else:
                         st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
-                    # 2. Marcar como Entregado si está en Aduanas
                     if row_data['estatus'] == "En Aduanas":
                         st.markdown("---")
                         st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado' al recibirlo en almacén.")
@@ -590,7 +588,6 @@ if menu == "📋 Control de Embarques":
                             st.success("¡Estatus actualizado a 'Entregado' con éxito!")
                             st.rerun()
 
-                    # 3. Cargar Fotos de Descarga (ACTIVO SOLO SI EL ESTATUS ES "ENTREGADO")
                     st.markdown("---")
                     if row_data['estatus'] == "Entregado":
                         st.subheader("📸 Cargar Fotos / Reporte de Descarga")
@@ -615,7 +612,6 @@ if menu == "📋 Control de Embarques":
                     else:
                         st.info("🔒 **Carga de Fotos de Descarga Inactiva:** La opción para subir fotos se habilitará cuando el embarque sea marcado como **'Entregado'**.")
 
-                    # 4. Ver y descargar fotos que Almacén haya subido previamente
                     df_fotos_almacen = pd.read_sql_query(
                         "SELECT * FROM documentos_embarque WHERE num_invoice = ? AND tipo_documento = 'Fotos de Descarga'", 
                         conn, params=(selected_invoice,)
@@ -700,10 +696,15 @@ if menu == "📋 Control de Embarques":
                                 st.caption(f"❌ {label}: No cargado")
 
                     st.markdown("---")
-                    st.subheader("📁 Expediente Anexo y Documentación Adicional")
                     
-                    # Formulario Carga Anexos
-                    with st.expander("➕ **Adjuntar Nuevos Documentos al Expediente**", expanded=False):
+                    # -------------------------------------------------------------
+                    # EXPEDIENTE ANEXO PLEGABLE Y COMPACTO (MEJORA DE UX)
+                    # -------------------------------------------------------------
+                    df_extra_docs = pd.read_sql_query("SELECT * FROM documentos_embarque WHERE num_invoice = ?", conn, params=(selected_invoice,))
+                    cant_anexos = len(df_extra_docs)
+                    
+                    with st.expander(f"📁 **Expediente Anexo y Documentación Adicional** ({cant_anexos} archivo(s) cargado(s))", expanded=False):
+                        st.markdown("##### ➕ Adjuntar Nuevos Documentos")
                         with st.form(f"form_extra_docs_{selected_invoice}"):
                             c_exp1, c_exp2 = st.columns(2)
                             with c_exp1:
@@ -728,49 +729,52 @@ if menu == "📋 Control de Embarques":
                                     st.success(f"✅ ¡{len(extra_files)} documento(s) adjuntado(s) exitosamente como '{tipo_doc_sel}'!")
                                     st.rerun()
 
-                    # Listado Anexos Cargados
-                    df_extra_docs = pd.read_sql_query("SELECT * FROM documentos_embarque WHERE num_invoice = ?", conn, params=(selected_invoice,))
-                    if not df_extra_docs.empty:
-                        st.markdown("##### 📄 Archivos Anexos Registrados en este Embarque:")
-                        for idx_doc, doc_row in df_extra_docs.iterrows():
-                            c_doc1, c_doc2, c_doc3, c_doc4 = st.columns([2, 3, 2, 1])
-                            c_doc1.write(f"🏷️ **{doc_row['tipo_documento']}**")
-                            c_doc2.write(f"📄 {doc_row['nombre_archivo']}")
-                            c_doc3.caption(f"📅 {doc_row['fecha_subida']} ({doc_row['subido_por']})")
-                            
-                            with c_doc4:
-                                if has_valid_file(doc_row['path_archivo']):
-                                    with open(doc_row['path_archivo'], "rb") as f_ex:
-                                        st.download_button(
-                                            label="⬇️ Descargar",
-                                            data=f_ex,
-                                            file_name=doc_row['nombre_archivo'],
-                                            mime="application/octet-stream",
-                                            key=f"dl_extra_{doc_row['id']}"
-                                        )
-                                else:
-                                    st.caption("Archivo no hallado")
-                                
-                                if st.button("🗑️", key=f"del_extra_{doc_row['id']}", help="Eliminar este archivo"):
-                                    c = conn.cursor()
-                                    c.execute("DELETE FROM documentos_embarque WHERE id = ?", (doc_row['id'],))
-                                    conn.commit()
-                                    st.success("Documento eliminado.")
-                                    st.rerun()
-                            st.divider()
+                        st.divider()
 
-                    # BOTÓN DESCARGA ZIP COMPLETO
-                    st.markdown("##### 📦 Descarga Masiva del Expediente")
-                    zip_buffer = generar_zip_expediente(selected_invoice, row_data, conn)
-                    st.download_button(
-                        label=f"📦 Descargar Expediente COMPLETO en .ZIP ({selected_invoice})",
-                        data=zip_buffer,
-                        file_name=f"Expediente_Completo_{selected_invoice}.zip",
-                        mime="application/zip",
-                        type="primary",
-                        use_container_width=True,
-                        key=f"btn_zip_{selected_invoice}"
-                    )
+                        # Listado de Anexos
+                        if not df_extra_docs.empty:
+                            st.markdown("##### 📄 Archivos Anexos Registrados en este Embarque:")
+                            for idx_doc, doc_row in df_extra_docs.iterrows():
+                                c_doc1, c_doc2, c_doc3, c_doc4 = st.columns([2, 3, 2, 1])
+                                c_doc1.write(f"🏷️ **{doc_row['tipo_documento']}**")
+                                c_doc2.write(f"📄 {doc_row['nombre_archivo']}")
+                                c_doc3.caption(f"📅 {doc_row['fecha_subida']} ({doc_row['subido_por']})")
+                                
+                                with c_doc4:
+                                    if has_valid_file(doc_row['path_archivo']):
+                                        with open(doc_row['path_archivo'], "rb") as f_ex:
+                                            st.download_button(
+                                                label="⬇️ Descargar",
+                                                data=f_ex,
+                                                file_name=doc_row['nombre_archivo'],
+                                                mime="application/octet-stream",
+                                                key=f"dl_extra_{doc_row['id']}"
+                                            )
+                                    else:
+                                        st.caption("Archivo no hallado")
+                                    
+                                    if st.button("🗑️", key=f"del_extra_{doc_row['id']}", help="Eliminar este archivo"):
+                                        c = conn.cursor()
+                                        c.execute("DELETE FROM documentos_embarque WHERE id = ?", (doc_row['id'],))
+                                        conn.commit()
+                                        st.success("Documento eliminado.")
+                                        st.rerun()
+                                st.divider()
+                        else:
+                            st.info("No hay documentos anexos adjuntados para este embarque aún.")
+
+                        # Botón Descarga ZIP
+                        st.markdown("##### 📦 Descarga Masiva del Expediente")
+                        zip_buffer = generar_zip_expediente(selected_invoice, row_data, conn)
+                        st.download_button(
+                            label=f"📦 Descargar Expediente COMPLETO en .ZIP ({selected_invoice})",
+                            data=zip_buffer,
+                            file_name=f"Expediente_Completo_{selected_invoice}.zip",
+                            mime="application/zip",
+                            type="primary",
+                            use_container_width=True,
+                            key=f"btn_zip_{selected_invoice}"
+                        )
 
                     # BALANCE FINANCIERO FÁBRICA
                     st.markdown("---")
