@@ -386,29 +386,29 @@ if not st.session_state.authenticated:
 
 role = st.session_state.user_role 
     
-    # Definición de opciones por rol
+# Definición de opciones por rol
 if role == "admin":  # Compras
-        options = [
-            "📋 Control de Embarques", 
-            "💳 Módulo de Pagos Internacionales",
-            "📊 Carga Masiva (Excel/CSV)", 
-            "➕ Cargar Nuevo Embarque", 
-            "✏️ Editar / Actualizar Embarque"
-        ]
-    else:  # Almacén y Administración
-        options = ["📋 Control de Embarques"]
+    options = [
+        "📋 Control de Embarques", 
+        "💳 Módulo de Pagos Internacionales",
+        "📊 Carga Masiva (Excel/CSV)", 
+        "➕ Cargar Nuevo Embarque", 
+        "✏️ Editar / Actualizar Embarque"
+    ]
+else:  # Almacén y Administración
+    options = ["📋 Control de Embarques"]
 
-    menu = st.sidebar.radio("Navegación", options)
+menu = st.sidebar.radio("Navegación", options)
 
-    st.sidebar.markdown("---")
-    if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
-        st.session_state.authenticated = False
-        st.session_state.user_role = None
-        st.session_state.user_dept = None
-        st.session_state.editing_invoice = None
-        st.rerun()
+st.sidebar.markdown("---")
+if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
+    st.session_state.authenticated = False
+    st.session_state.user_role = None
+    st.session_state.user_dept = None
+    st.session_state.editing_invoice = None
+    st.rerun()
 
-    conn = sqlite3.connect(DB_PATH)
+conn = sqlite3.connect(DB_PATH)
 
 # --- VISTA 1: CONTROL DE EMBARQUES ---
     if menu == "📋 Control de Embarques":
