@@ -376,13 +376,15 @@ if not st.session_state.authenticated:
                     st.rerun()
                 else:
                     st.error("❌ PIN incorrecto.")
+    
+    st.stop()  # 👈 AGREGA ESTA LÍNEA AQUÍ (Detiene la app si no ha iniciado sesión)
 
 # --- PANTALLA SISTEMA ---
-else:
+# --- PANTALLA SISTEMA (Solo se ejecuta si se inició sesión) ---
     st.sidebar.title("🚢 Menú Principal")
     st.sidebar.markdown(f"**Usuario:** {st.session_state.user_dept}")
-    
-    role = st.session_state.user_role
+
+role = st.session_state.user_role 
     
     # Definición de opciones por rol
     if role == "admin":  # Compras
