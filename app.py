@@ -560,7 +560,7 @@ else:
 # --- AHORA LLAMAS A LAS DOS FUNCIONES AQUÍ ---
                     render_timeline(row_data['estatus'])
 
-eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
+    eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
 if eta_type == "error":
     st.error(eta_msg)
 elif eta_type == "warning":
