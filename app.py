@@ -387,7 +387,7 @@ if not st.session_state.authenticated:
 role = st.session_state.user_role 
     
     # Definición de opciones por rol
-        if role == "admin":  # Compras
+if role == "admin":  # Compras
         options = [
             "📋 Control de Embarques", 
             "💳 Módulo de Pagos Internacionales",
