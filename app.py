@@ -1023,109 +1023,109 @@ elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
         except Exception as e:
             st.error(f"Error procesando archivo: {e}")
 
-    # --- VISTA 4: REGISTRO MANUAL ---
-    elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
-        st.title("➕ Registrar Nuevo Embarque Manual")
-        with st.form("form_embarque", clear_on_submit=True):
+# --- VISTA 4: REGISTRO MANUAL ---
+elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
+    st.title("➕ Registrar Nuevo Embarque Manual")
+    with st.form("form_embarque", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            num_invoice = st.text_input("Número de Invoice *")
+            fabricante = st.text_input("Fabricante / Proveedor")
+            monto_factura = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, step=100.0, format="%.2f")
+            producto = st.text_input("Descripción del Producto")
+            origen = st.text_input("Origen", value="China")
+            destino = st.text_input("Destino", value="Venezuela")
+        with col2:
+            num_bl = st.text_input("Número de BL *")
+            naviera = st.selectbox("Línea Naviera", NAVIERAS)
+            num_contenedor = st.text_input("Número de Contenedor")
+            agente_carga = st.text_input("Agente de Carga Asignado")
+            agente_aduanas = st.text_input("Agente de Aduanas")
+        with col3:
+            consignatario = st.text_input("Consignatario")
+            eta = st.date_input("Estimado de Arribo (ETA)")
+            estatus = st.selectbox("Estatus Inicial", ESTATUS_LISTA, index=0)
+        
+        st.markdown("### Adjuntar Documentación (PDF/Excel)")
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            file_packing = st.file_uploader("Packing List (Para Almacén)", type=["pdf", "xlsx"])
+            file_invoice = st.file_uploader("Factura Comercial (Invoice)", type=["pdf"])
+        with col_f2:
+            file_flete = st.file_uploader("Factura de Flete", type=["pdf"])
+            file_bl = st.file_uploader("Documento BL", type=["pdf"])
+            
+        submitted = st.form_submit_button("Guardar y Publicar Embarque")
+        if submitted:
+            if not num_invoice or not num_bl:
+                st.error("El N° de Invoice y N° de BL son obligatorios.")
+            else:
+                p_pack = save_file(file_packing, num_invoice, "packing")
+                p_inv = save_file(file_invoice, num_invoice, "invoice")
+                p_fle = save_file(file_flete, num_invoice, "flete")
+                p_bl = save_file(file_bl, num_invoice, "bl")
+                
+                c = conn.cursor()
+                try:
+                    c.execute('''INSERT INTO embarques (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, eta, estatus, path_packing, path_invoice, path_flete, path_bl, monto_factura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, str(eta), estatus, p_pack, p_inv, p_fle, p_bl, monto_factura))
+                    conn.commit()
+                    st.success(f"Embarque Invoice {num_invoice} registrado en estatus '{estatus}'.")
+                except sqlite3.IntegrityError:
+                    st.error(f"❌ La Invoice {num_invoice} ya existe.")
+
+# --- VISTA 5: EDITAR EMBARQUE ---
+elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
+    st.title("✏️ Editar Embarque Existente")
+    df = pd.read_sql_query("SELECT * FROM embarques", conn)
+    if df.empty:
+        st.info("No hay embarques para editar.")
+    else:
+        invoices_list = list(df['num_invoice'].unique())
+        selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", invoices_list)
+        row = df[df['num_invoice'] == selected_invoice].iloc[0]
+        
+        with st.form("form_editar_embarque"):
             col1, col2, col3 = st.columns(3)
             with col1:
-                num_invoice = st.text_input("Número de Invoice *")
-                fabricante = st.text_input("Fabricante / Proveedor")
-                monto_factura = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, step=100.0, format="%.2f")
-                producto = st.text_input("Descripción del Producto")
-                origen = st.text_input("Origen", value="China")
-                destino = st.text_input("Destino", value="Venezuela")
+                num_invoice_edit = st.text_input("Número de Invoice", value=str(row['num_invoice']), disabled=True)
+                fabricante_edit = st.text_input("Fabricante / Proveedor", value=str(row['fabricante'] or ''))
+                monto_factura_edit = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row['monto_factura'] or 0.0), step=100.0, format="%.2f")
+                producto_edit = st.text_input("Descripción del Producto", value=str(row['producto'] or ''))
+                origen_edit = st.text_input("Origen", value=str(row['origen'] or ''))
+                destino_edit = st.text_input("Destino", value=str(row['destino'] or ''))
             with col2:
-                num_bl = st.text_input("Número de BL *")
-                naviera = st.selectbox("Línea Naviera", NAVIERAS)
-                num_contenedor = st.text_input("Número de Contenedor")
-                agente_carga = st.text_input("Agente de Carga Asignado")
-                agente_aduanas = st.text_input("Agente de Aduanas")
+                num_bl_edit = st.text_input("Número de BL", value=str(row['num_bl'] or ''))
+                nav_val = str(row['naviera']) if row['naviera'] in NAVIERAS else NAVIERAS[0]
+                naviera_edit = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
+                num_contenedor_edit = st.text_input("Número de Contenedor", value=str(row['num_contenedor'] or ''))
+                agente_carga_edit = st.text_input("Agente de Carga", value=str(row['agente_carga'] or ''))
+                agente_aduanas_edit = st.text_input("Agente de Aduanas", value=str(row['agente_aduanas'] or ''))
             with col3:
-                consignatario = st.text_input("Consignatario")
-                eta = st.date_input("Estimado de Arribo (ETA)")
-                estatus = st.selectbox("Estatus Inicial", ESTATUS_LISTA, index=0)
+                consignatario_edit = st.text_input("Consignatario", value=str(row['consignatario'] or ''))
+                fecha_val = safe_parse_date(row['eta'])
+                eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
+                est_val = str(row['estatus']) if row['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
+                estatus_edit = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_val))
             
-            st.markdown("### Adjuntar Documentación (PDF/Excel)")
+            st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
             col_f1, col_f2 = st.columns(2)
             with col_f1:
-                file_packing = st.file_uploader("Packing List (Para Almacén)", type=["pdf", "xlsx"])
-                file_invoice = st.file_uploader("Factura Comercial (Invoice)", type=["pdf"])
+                new_file_packing = st.file_uploader("Nuevo Packing List", type=["pdf", "xlsx"], key="edit_pack")
+                new_file_invoice = st.file_uploader("Nueva Factura Comercial", type=["pdf"], key="edit_inv")
             with col_f2:
-                file_flete = st.file_uploader("Factura de Flete", type=["pdf"])
-                file_bl = st.file_uploader("Documento BL", type=["pdf"])
+                new_file_flete = st.file_uploader("Nueva Factura Flete", type=["pdf"], key="edit_fle")
+                new_file_bl = st.file_uploader("Nuevo BL", type=["pdf"], key="edit_bl")
+
+            submit_edit = st.form_submit_button("💾 Guardar Cambios en Embarque")
+            if submit_edit:
+                p_pack = save_file(new_file_packing, selected_invoice, "packing") or row['path_packing']
+                p_inv = save_file(new_file_invoice, selected_invoice, "invoice") or row['path_invoice']
+                p_fle = save_file(new_file_flete, selected_invoice, "flete") or row['path_flete']
+                p_bl = save_file(new_file_bl, selected_invoice, "bl") or row['path_bl']
                 
-            submitted = st.form_submit_button("Guardar y Publicar Embarque")
-            if submitted:
-                if not num_invoice or not num_bl:
-                    st.error("El N° de Invoice y N° de BL son obligatorios.")
-                else:
-                    p_pack = save_file(file_packing, num_invoice, "packing")
-                    p_inv = save_file(file_invoice, num_invoice, "invoice")
-                    p_fle = save_file(file_flete, num_invoice, "flete")
-                    p_bl = save_file(file_bl, num_invoice, "bl")
-                    
-                    c = conn.cursor()
-                    try:
-                        c.execute('''INSERT INTO embarques (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, eta, estatus, path_packing, path_invoice, path_flete, path_bl, monto_factura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, str(eta), estatus, p_pack, p_inv, p_fle, p_bl, monto_factura))
-                        conn.commit()
-                        st.success(f"Embarque Invoice {num_invoice} registrado en estatus '{estatus}'.")
-                    except sqlite3.IntegrityError:
-                        st.error(f"❌ La Invoice {num_invoice} ya existe.")
+                c = conn.cursor()
+                c.execute('''UPDATE embarques SET origen=?, destino=?, fabricante=?, agente_carga=?, agente_aduanas=?, consignatario=?, producto=?, num_bl=?, naviera=?, num_contenedor=?, eta=?, estatus=?, path_packing=?, path_invoice=?, path_flete=?, path_bl=?, monto_factura=? WHERE num_invoice=?''', (origen_edit, destino_edit, fabricante_edit, agente_carga_edit, agente_aduanas_edit, consignatario_edit, producto_edit, num_bl_edit, naviera_edit, num_contenedor_edit, str(eta_edit), estatus_edit, p_pack, p_inv, p_fle, p_bl, monto_factura_edit, selected_invoice))
+                conn.commit()
+                st.success(f"✅ Embarque Invoice {selected_invoice} actualizado.")
 
-    # --- VISTA 5: EDITAR EMBARQUE ---
-    elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
-        st.title("✏️ Editar Embarque Existente")
-        df = pd.read_sql_query("SELECT * FROM embarques", conn)
-        if df.empty:
-            st.info("No hay embarques para editar.")
-        else:
-            invoices_list = list(df['num_invoice'].unique())
-            selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", invoices_list)
-            row = df[df['num_invoice'] == selected_invoice].iloc[0]
-            
-            with st.form("form_editar_embarque"):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    num_invoice_edit = st.text_input("Número de Invoice", value=str(row['num_invoice']), disabled=True)
-                    fabricante_edit = st.text_input("Fabricante / Proveedor", value=str(row['fabricante'] or ''))
-                    monto_factura_edit = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row['monto_factura'] or 0.0), step=100.0, format="%.2f")
-                    producto_edit = st.text_input("Descripción del Producto", value=str(row['producto'] or ''))
-                    origen_edit = st.text_input("Origen", value=str(row['origen'] or ''))
-                    destino_edit = st.text_input("Destino", value=str(row['destino'] or ''))
-                with col2:
-                    num_bl_edit = st.text_input("Número de BL", value=str(row['num_bl'] or ''))
-                    nav_val = str(row['naviera']) if row['naviera'] in NAVIERAS else NAVIERAS[0]
-                    naviera_edit = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
-                    num_contenedor_edit = st.text_input("Número de Contenedor", value=str(row['num_contenedor'] or ''))
-                    agente_carga_edit = st.text_input("Agente de Carga", value=str(row['agente_carga'] or ''))
-                    agente_aduanas_edit = st.text_input("Agente de Aduanas", value=str(row['agente_aduanas'] or ''))
-                with col3:
-                    consignatario_edit = st.text_input("Consignatario", value=str(row['consignatario'] or ''))
-                    fecha_val = safe_parse_date(row['eta'])
-                    eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
-                    est_val = str(row['estatus']) if row['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
-                    estatus_edit = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_val))
-                
-                st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
-                col_f1, col_f2 = st.columns(2)
-                with col_f1:
-                    new_file_packing = st.file_uploader("Nuevo Packing List", type=["pdf", "xlsx"], key="edit_pack")
-                    new_file_invoice = st.file_uploader("Nueva Factura Comercial", type=["pdf"], key="edit_inv")
-                with col_f2:
-                    new_file_flete = st.file_uploader("Nueva Factura Flete", type=["pdf"], key="edit_fle")
-                    new_file_bl = st.file_uploader("Nuevo BL", type=["pdf"], key="edit_bl")
-
-                submit_edit = st.form_submit_button("💾 Guardar Cambios en Embarque")
-                if submit_edit:
-                    p_pack = save_file(new_file_packing, selected_invoice, "packing") or row['path_packing']
-                    p_inv = save_file(new_file_invoice, selected_invoice, "invoice") or row['path_invoice']
-                    p_fle = save_file(new_file_flete, selected_invoice, "flete") or row['path_flete']
-                    p_bl = save_file(new_file_bl, selected_invoice, "bl") or row['path_bl']
-                    
-                    c = conn.cursor()
-                    c.execute('''UPDATE embarques SET origen=?, destino=?, fabricante=?, agente_carga=?, agente_aduanas=?, consignatario=?, producto=?, num_bl=?, naviera=?, num_contenedor=?, eta=?, estatus=?, path_packing=?, path_invoice=?, path_flete=?, path_bl=?, monto_factura=? WHERE num_invoice=?''', (origen_edit, destino_edit, fabricante_edit, agente_carga_edit, agente_aduanas_edit, consignatario_edit, producto_edit, num_bl_edit, naviera_edit, num_contenedor_edit, str(eta_edit), estatus_edit, p_pack, p_inv, p_fle, p_bl, monto_factura_edit, selected_invoice))
-                    conn.commit()
-                    st.success(f"✅ Embarque Invoice {selected_invoice} actualizado.")
-
-    conn.close()
+conn.close()
