@@ -4,6 +4,8 @@ import pandas as pd
 import os
 import io
 from datetime import date
+import urllib.parse
+
 
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE PÁGINA (¡DEBE SER LO PRIMERO EN EJECUTARSE!)
@@ -141,6 +143,49 @@ def safe_parse_date(val):
 # -------------------------------------------------------------
 # FUNCIONES DE VISIBILIDAD Y CONTROL LOGÍSTICO (TIMELINE Y ETA)
 # -------------------------------------------------------------
+def get_tracking_info(naviera, num_contenedor, num_bl):
+    """
+    Genera la URL oficial de rastreo según la línea naviera y la referencia disponible (Contenedor o BL).
+    """
+    cont = str(num_contenedor).strip().upper() if pd.notna(num_contenedor) else ""
+    bl = str(num_bl).strip().upper() if pd.notna(num_bl) else ""
+    nav = str(naviera).strip().upper() if pd.notna(naviera) else ""
+    
+    # Determinar qué referencia usar (preferencia: contenedor, luego BL)
+    ref = cont if cont and cont not in ['NONE', 'NAN', ''] else bl
+    if not ref or ref in ['NONE', 'NAN', '']:
+        return None, None, "⚠️ Sin Contenedor / BL asignado"
+
+    encoded_ref = urllib.parse.quote(ref)
+    
+    # Mapeo de URLs oficiales por Naviera
+    if "MSC" in nav:
+        url = f"https://www.msc.com/en/track-a-shipment?number={encoded_ref}"
+        label = "🌐 Rastrear en MSC Shipping"
+    elif "MAERSK" in nav:
+        url = f"https://www.maersk.com/tracking/{encoded_ref}"
+        label = "🌐 Rastrear en Maersk"
+    elif "CMA" in nav:
+        url = f"https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy=Container&Reference={encoded_ref}"
+        label = "🌐 Rastrear en CMA CGM"
+    elif "HAPAG" in nav:
+        url = f"https://www.hapag-lloyd.com/en/online-business/track/track-by-container.html?container={encoded_ref}"
+        label = "🌐 Rastrear en Hapag-Lloyd"
+    elif "ONE" in nav:
+        url = f"https://ecomm.one-line.com/one-ecom/cargo-tracking?searchType=C&number={encoded_ref}"
+        label = "🌐 Rastrear en ONE Line"
+    elif "COSCO" in nav:
+        url = f"https://lines.coscoshipping.com/ebusiness/cargo-tracking?type=CONTAINER_NO&number={encoded_ref}"
+        label = "🌐 Rastrear en COSCO Shipping"
+    elif "EVERGREEN" in nav:
+        url = f"https://www.shipmentlink.com/tms/servlet/TDB1_CargoTracking.do"
+        label = "🌐 Abrir Portal Evergreen"
+    else:
+        # Rastreador Multinaviera Universal (SeaRates)
+        url = f"https://www.searates.com/container/tracking/?container={encoded_ref}"
+        label = "🌐 Rastrear en SeaRates (Universal)"
+
+    return url, label, f"Ref: `{ref}` ({nav})"
 def get_eta_status(eta_val, estatus_val):
     """Calcula los días restantes para la ETA y genera la alerta correspondiente"""
     if pd.isna(eta_val) or str(eta_val).strip() in ['', 'None', 'nan', 'NaT']:
@@ -556,6 +601,33 @@ if menu == "📋 Control de Embarques":
 
                 st.markdown("---")
                 st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
+
+                # =============================================================
+                # MÓDULO DE RASTREO SATELITAL Y TRACKING DIRECTO
+                # =============================================================
+                st.markdown("##### 📡 Rastreo de Carga en Tiempo Real")
+                url_track, label_track, info_ref = get_tracking_info(
+                    row_data['naviera'], 
+                    row_data['num_contenedor'], 
+                    row_data['num_bl']
+                )
+
+                c_track1, c_track2 = st.columns([3, 1])
+                with c_track1:
+                    st.caption(f"Línea Naviera: **{row_data['naviera'] or 'No especificada'}** | {info_ref}")
+                
+                with c_track2:
+                    if url_track:
+                        st.link_button(
+                            label=label_track,
+                            url=url_track,
+                            type="primary",
+                            use_container_width=True
+                        )
+                    else:
+                        st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
+
+                st.divider()
 
                 # =============================================================
                 # DIBUJAR LÍNEA DE TIEMPO Y ETA (UNA SOLA VEZ AQUÍ)
