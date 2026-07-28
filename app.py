@@ -194,13 +194,11 @@ def render_timeline(estatus_actual):
                 # Paso Completado (Caja Verde)
                 st.success(f"✓ {icono} {nombre_fase}")
             elif i == idx_actual:
-                # Paso Actual (Caja Azul)
-                sub_texto = f"\n*({estatus_actual})*" if nombre_fase == "En Tránsito" else ""
-                st.info(f"📍 {icono} **{nombre_fase}**{sub_texto}")
+                # Paso Actual (Caja Azul limpia)
+                st.info(f"📍 {icono} **{nombre_fase}**")
             else:
                 # Paso Pendiente (Texto Gris)
                 st.caption(f"⚪ {icono} {nombre_fase}")
-
 # -------------------------------------------------------------
 # FUNCIÓN GENERADORA DEL PDF DE LA FICHA DEL EMBARQUE (ACTUALIZADA)
 # -------------------------------------------------------------
