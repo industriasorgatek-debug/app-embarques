@@ -585,7 +585,6 @@ with c_track2:
         url_searates = f"https://www.searates.com/container/tracking/?container={urllib.parse.quote(str(ref_val).strip())}"
         st.link_button(label="🔍 Rastreo Universal (SeaRates)", url=url_searates, type="secondary", use_container_width=True)
 
-                st.divider()
 
                 # =============================================================
                 # 1. ROL ALMACÉN (ACCESO DOCUMENTAL Y OPERATIVO RESTRINGIDO)
