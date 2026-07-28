@@ -807,7 +807,20 @@ if menu == "📋 Control de Embarques":
    # =========================================================================
     # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
     # =========================================================================
-    elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
+    # -------------------------------------------------------------------------
+    # --- MENÚ 1: CONTROL DE EMBARQUES ---
+    # -------------------------------------------------------------------------
+    if "Control de Embarques" in menu:
+        st.title("📋 Control General de Embarques")
+        st.caption("Visualización interactiva, búsqueda en tiempo real y gestión de archivos")
+        
+        # ... (todo el código de la vista de embarques que ya funciona) ...
+
+
+    # -------------------------------------------------------------------------
+    # --- MENÚ 2: MÓDULO DE PAGOS INTERNACIONALES ---
+    # -------------------------------------------------------------------------
+    elif "Pagos Internacionales" in menu:
         st.title("💳 Registro y Control de Pagos Internacionales")
         st.caption("Módulo exclusivo para Compras: Administra, modifica y elimina transferencias realizadas")
 
@@ -955,7 +968,6 @@ if menu == "📋 Control de Embarques":
                     use_container_width=True,
                     hide_index=True
                 )
-
     # --- VISTA 3: CARGA MASIVA ---
 elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
     st.title("📊 Carga Masiva de Embarques")
