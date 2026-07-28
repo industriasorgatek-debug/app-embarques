@@ -596,7 +596,7 @@ else:
         st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
 
 # 1. ROL ALMACÉN
-    if role == "almacen":
+        if role == "almacen":
         st.subheader("📦 Gestión de Almacén")
                             
         if has_valid_file(row_data['path_packing']):
