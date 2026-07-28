@@ -5,7 +5,7 @@ import os
 import io
 import urllib.parse
 import zipfile
-from datetime import date
+from datetime import date, datetime
 
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE PÁGINA
@@ -115,6 +115,19 @@ def init_db():
             path_archivo TEXT,
             fecha_subida DATE,
             subido_por TEXT,
+            FOREIGN KEY (num_invoice) REFERENCES embarques(num_invoice)
+        )
+    ''')
+
+    # Tabla Relacional de Notas / Bitácora (Exclusiva Compras y Almacén)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS notas_embarque (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            num_invoice TEXT,
+            usuario TEXT,
+            rol TEXT,
+            comentario TEXT,
+            fecha_hora TEXT,
             FOREIGN KEY (num_invoice) REFERENCES embarques(num_invoice)
         )
     ''')
@@ -557,6 +570,50 @@ if menu == "📋 Control de Embarques":
                     if url_track: st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
                     else: st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
 
+                # =============================================================
+                # 📝 MÓDULO DE NOTAS / BITÁCORA (SOLO PARA COMPRAS Y ALMACÉN)
+                # =============================================================
+                if role in ["admin", "almacen"]:
+                    st.markdown("---")
+                    st.subheader("📝 Bitácora de Notas y Comentarios")
+                    st.caption("Espacio exclusivo para Compras y Almacén para registrar observaciones de la carga.")
+
+                    with st.form(key=f"form_nota_{selected_invoice}", clear_on_submit=True):
+                        nuevo_comentario = st.text_area(
+                            "Agregar comentario / novedad corta:",
+                            placeholder="Ej: Contenedor recibido con empaque levemente dañado en paleta 3... / Documentos enviados a aduana.",
+                            max_chars=400,
+                            height=80
+                        )
+                        btn_guardar_nota = st.form_submit_button("💬 Guardar Nota", type="primary")
+
+                        if btn_guardar_nota:
+                            if not nuevo_comentario.strip():
+                                st.warning("⚠️ Escriba un comentario antes de guardar.")
+                            else:
+                                fecha_hora_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
+                                c = conn.cursor()
+                                c.execute('''
+                                    INSERT INTO notas_embarque (num_invoice, usuario, rol, comentario, fecha_hora)
+                                    VALUES (?, ?, ?, ?, ?)
+                                ''', (selected_invoice, st.session_state.user_dept, role, nuevo_comentario.strip(), fecha_hora_actual))
+                                conn.commit()
+                                st.success("✅ Comentario registrado exitosamente.")
+                                st.rerun()
+
+                    df_notas = pd.read_sql_query(
+                        "SELECT * FROM notas_embarque WHERE num_invoice = ? ORDER BY id DESC",
+                        conn, params=(selected_invoice,)
+                    )
+
+                    if not df_notas.empty:
+                        st.markdown("##### 📜 Historial de Observaciones:")
+                        for _, n_row in df_notas.iterrows():
+                            badge = "🛒 Compras" if n_row['rol'] == 'admin' else "📦 Almacén"
+                            st.info(f"**{badge} ({n_row['usuario']})** — `{n_row['fecha_hora']}`\n\n💬 {n_row['comentario']}")
+                    else:
+                        st.caption("ℹ️ No hay observaciones registradas para esta carga aún.")
+
                 st.divider()
 
                 # =============================================================
@@ -697,9 +754,7 @@ if menu == "📋 Control de Embarques":
 
                     st.markdown("---")
                     
-                    # -------------------------------------------------------------
-                    # EXPEDIENTE ANEXO PLEGABLE Y COMPACTO (MEJORA DE UX)
-                    # -------------------------------------------------------------
+                    # Expediente Anexo
                     df_extra_docs = pd.read_sql_query("SELECT * FROM documentos_embarque WHERE num_invoice = ?", conn, params=(selected_invoice,))
                     cant_anexos = len(df_extra_docs)
                     
@@ -731,7 +786,6 @@ if menu == "📋 Control de Embarques":
 
                         st.divider()
 
-                        # Listado de Anexos
                         if not df_extra_docs.empty:
                             st.markdown("##### 📄 Archivos Anexos Registrados en este Embarque:")
                             for idx_doc, doc_row in df_extra_docs.iterrows():
@@ -763,7 +817,6 @@ if menu == "📋 Control de Embarques":
                         else:
                             st.info("No hay documentos anexos adjuntados para este embarque aún.")
 
-                        # Botón Descarga ZIP
                         st.markdown("##### 📦 Descarga Masiva del Expediente")
                         zip_buffer = generar_zip_expediente(selected_invoice, row_data, conn)
                         st.download_button(
