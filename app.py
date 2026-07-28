@@ -576,24 +576,24 @@ else:
     st.markdown(render_timeline_html(row_data['estatus']), unsafe_allow_html=True)
 
                     # 2. Renderizar el semáforo/alerta dinámica del ETA
-eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
-if eta_type == "error":
-    st.error(eta_msg)
-elif eta_type == "warning":
-    st.warning(eta_msg)
-elif eta_type == "success":
-    st.success(eta_msg)
-else:
-    st.info(eta_msg)
-
-if role == "admin":
-    es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
-    tiene_pago_ff = selected_invoice in invoices_con_pago_ff
-
-if not es_omito_flete and not tiene_pago_ff:
-        st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
-elif tiene_pago_ff:
-    st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
+    eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
+    if eta_type == "error":
+        st.error(eta_msg)
+    elif eta_type == "warning":
+        st.warning(eta_msg)
+    elif eta_type == "success":
+        st.success(eta_msg)
+    else:
+        st.info(eta_msg)
+    
+    if role == "admin":
+        es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
+        tiene_pago_ff = selected_invoice in invoices_con_pago_ff
+    
+    if not es_omito_flete and not tiene_pago_ff:
+            st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
+    elif tiene_pago_ff:
+        st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
 
 # 1. ROL ALMACÉN
 if role == "almacen":
