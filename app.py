@@ -804,18 +804,6 @@ if menu == "📋 Control de Embarques":
                 st.success("✅ ¡Embarque actualizado con éxito!")
                 st.rerun()
 
-   # =========================================================================
-    # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
-    # =========================================================================
-    # -------------------------------------------------------------------------
-    # --- MENÚ 1: CONTROL DE EMBARQUES ---
-    # -------------------------------------------------------------------------
-    if "Control de Embarques" in menu:
-        st.title("📋 Control General de Embarques")
-        st.caption("Visualización interactiva, búsqueda en tiempo real y gestión de archivos")
-        
-        # ... (todo el código de la vista de embarques que ya funciona) ...
-
 
 # -------------------------------------------------------------------------
 # --- MENÚ 2: MÓDULO DE PAGOS INTERNACIONALES ---
