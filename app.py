@@ -207,42 +207,26 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
     bl = str(num_bl).strip().upper() if pd.notna(num_bl) else ""
     nav = str(naviera).strip().upper() if pd.notna(naviera) else ""
     
-    # Preferimos el Contenedor para rastreo naviero, si no existe usamos el BL
     ref = cont if cont and cont not in ['NONE', 'NAN', ''] else bl
     if not ref or ref in ['NONE', 'NAN', '']:
         return None, None, "⚠️ Sin Contenedor / BL asignado"
 
     encoded_ref = urllib.parse.quote(ref)
     
-    # MSC
     if "MSC" in nav:
         url, label = f"https://www.msc.com/en/track-a-shipment?number={encoded_ref}", "🌐 Rastrear en MSC"
-    
-    # MAERSK
     elif "MAERSK" in nav:
         url, label = f"https://www.maersk.com/tracking/{encoded_ref}", "🌐 Rastrear en Maersk"
-    
-    # CMA CGM (URL actualizada para el nuevo portal de envíos)
     elif "CMA" in nav:
-        url, label = f"https://www.cma-cgm.com/ebusiness/tracking/search?Reference={encoded_ref}", "🌐 Rastrear en CMA CGM"
-    
-    # HAPAG-LLOYD (URL actualizada de la Suite de Rastreo)
+        url, label = f"https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy=Container&Reference={encoded_ref}", "🌐 Rastrear en CMA CGM"
     elif "HAPAG" in nav:
-        url, label = f"https://www.hapag-lloyd.com/en/online-business/track/tracking-beta.html?container={encoded_ref}", "🌐 Rastrear en Hapag-Lloyd"
-    
-    # ONE LINE
+        url, label = f"https://www.hapag-lloyd.com/en/online-business/track/track-by-container.html?container={encoded_ref}", "🌐 Rastrear en Hapag-Lloyd"
     elif "ONE" in nav:
         url, label = f"https://ecomm.one-line.com/one-ecom/cargo-tracking?searchType=C&number={encoded_ref}", "🌐 Rastrear en ONE Line"
-    
-    # COSCO SHIPPING
     elif "COSCO" in nav:
         url, label = f"https://lines.coscoshipping.com/ebusiness/cargo-tracking?type=CONTAINER_NO&number={encoded_ref}", "🌐 Rastrear en COSCO"
-    
-    # EVERGREEN
     elif "EVERGREEN" in nav:
-        url, label = f"https://www.shipmentlink.com/tms/servlet/TDB1_CargoTracking.do?sel_type=CONTAINER&cntr_no={encoded_ref}", "🌐 Portal Evergreen"
-    
-    # OTRAS / DEFAULT (Rastreador Universal SeaRates)
+        url, label = "https://www.shipmentlink.com/tms/servlet/TDB1_CargoTracking.do", "🌐 Portal Evergreen"
     else:
         url, label = f"https://www.searates.com/container/tracking/?container={encoded_ref}", "🌐 Rastrear en SeaRates"
 
@@ -564,27 +548,16 @@ if menu == "📋 Control de Embarques":
                 elif eta_type == "success": st.success(eta_msg)
                 else: st.info(eta_msg)
 
-            # TRACKING DIRECTO
-            st.markdown("##### 📡 Rastreo de Carga en Tiempo Real")
-            url_track, label_track, info_ref = get_tracking_info(row_data['naviera'], row_data['num_contenedor'], row_data['num_bl'])
-            ref_val = row_data['num_contenedor'] if pd.notna(row_data['num_contenedor']) and str(row_data['num_contenedor']).strip() not in ['', 'None', 'nan'] else row_data['num_bl']
-            
-            st.caption(f"Línea Naviera: **{row_data['naviera'] or 'No especificada'}** | {info_ref}")
-            
-            c_track1, c_track2 = st.columns(2)
-            
-            with c_track1:
-                if url_track:
-                    st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
-                else:
-                    st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
-            
-            with c_track2:
-                if ref_val and str(ref_val).strip() not in ['', 'None', 'nan']:
-                    # Rastreador universal como respaldo 100% garantizado
-                    url_searates = f"https://www.searates.com/container/tracking/?container={urllib.parse.quote(str(ref_val).strip())}"
-                    st.link_button(label="🔍 Rastreo Universal (SeaRates)", url=url_searates, type="secondary", use_container_width=True)
+                # TRACKING DIRECTO
+                st.markdown("##### 📡 Rastreo de Carga en Tiempo Real")
+                url_track, label_track, info_ref = get_tracking_info(row_data['naviera'], row_data['num_contenedor'], row_data['num_bl'])
+                c_track1, c_track2 = st.columns([3, 1])
+                with c_track1: st.caption(f"Línea Naviera: **{row_data['naviera'] or 'No especificada'}** | {info_ref}")
+                with c_track2:
+                    if url_track: st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
+                    else: st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
 
+                st.divider()
 
                 # =============================================================
                 # 1. ROL ALMACÉN (ACCESO DOCUMENTAL Y OPERATIVO RESTRINGIDO)
