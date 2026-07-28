@@ -808,153 +808,153 @@ if menu == "📋 Control de Embarques":
     # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
     # =========================================================================
         elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
-        st.title("💳 Registro y Control de Pagos Internacionales")
-        st.caption("Módulo exclusivo para Compras: Administra, modifica y elimina transferencias realizadas")
-
-        df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, num_contenedor, monto_factura, estatus FROM embarques", conn)
-        
-        if df_emb.empty:
-            st.warning("⚠️ Primero debe registrar al menos un embarque para asignarle pagos.")
-        else:
-            invoices_map = {row['num_invoice']: f"{row['num_invoice']} - {row['fabricante']} (Contenedor: {row['num_contenedor']})" for _, row in df_emb.iterrows()}
+            st.title("💳 Registro y Control de Pagos Internacionales")
+            st.caption("Módulo exclusivo para Compras: Administra, modifica y elimina transferencias realizadas")
+    
+            df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, num_contenedor, monto_factura, estatus FROM embarques", conn)
             
-            tab_nuevo, tab_editar = st.tabs(["➕ Registrar Nuevo Pago", "✏️ Editar / Eliminar Pago Existente"])
-
-            with tab_nuevo:
-                st.subheader("➕ Registrar Nuevo Abono / Pago")
-                with st.form("form_registrar_pago", clear_on_submit=True):
-                    col_p1, col_p2 = st.columns(2)
-                    
-                    with col_p1:
-                        selected_inv_key = st.selectbox("Seleccione Embarque / Invoice *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x], key="new_pago_inv")
-                        tipo_pago = st.selectbox("Tipo de Pago *", TIPO_PAGO_LISTA, key="new_pago_tipo")
-                        banco_pago = st.selectbox("Banco / Plataforma de Origen *", BANCOS_LISTA, key="new_pago_banco")
-                        monto_pago = st.number_input("Monto del Abono ($ USD) *", min_value=0.01, step=100.0, format="%.2f", key="new_pago_monto")
-                        
-                    with col_p2:
-                        fecha_pago = st.date_input("Fecha de Transferencia", value=date.today(), key="new_pago_fecha")
-                        num_ref = st.text_input("Número de Referencia / Comprobante *", key="new_pago_ref")
-                        file_comprobante = st.file_uploader(
-                            "Subir Comprobante (JPG, PNG, PDF) *", 
-                            type=["png", "jpg", "jpeg", "pdf"],
-                            key="new_pago_file"
-                        )
-
-                    submit_pago = st.form_submit_button("💳 Registrar Pago / Abono", type="primary", use_container_width=True)
-
-                    if submit_pago:
-                        if not num_ref or file_comprobante is None or monto_pago <= 0:
-                            st.error("❌ Todos los campos marcados con (*) son obligatorios, incluyendo el comprobante.")
-                        else:
-                            ref_clean = "".join(c for c in num_ref if c.isalnum() or c in ('-', '_'))
-                            file_path_pago = save_file(file_comprobante, f"{selected_inv_key}_{ref_clean}", "COMPROBANTE", is_payment=True)
-                            
-                            c = conn.cursor()
-                            c.execute('''
-                                INSERT INTO pagos_embarques (num_invoice, tipo_pago, banco, monto, fecha_pago, referencia, path_comprobante)
-                                VALUES (?, ?, ?, ?, ?, ?, ?)
-                            ''', (selected_inv_key, tipo_pago, banco_pago, monto_pago, str(fecha_pago), num_ref, file_path_pago))
-                            
-                            if tipo_pago == "Pago a Fábrica":
-                                c.execute("SELECT estatus FROM embarques WHERE num_invoice = ?", (selected_inv_key,))
-                                estatus_actual = c.fetchone()[0]
-                                if estatus_actual == "Pendiente Pago":
-                                    c.execute("UPDATE embarques SET estatus = 'En Producción' WHERE num_invoice = ?", (selected_inv_key,))
-                                    st.info("ℹ️ **Estatus Actualizado:** El embarque cambió automáticamente de 'Pendiente Pago' a **'En Producción'**.")
-
-                            conn.commit()
-                            st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado con éxito para la Invoice {selected_inv_key}.")
-                            st.rerun()
-
-            with tab_editar:
-                st.subheader("🛠️ Modificar o Eliminar un Pago Registrado")
-                df_all_pagos = pd.read_sql_query("SELECT * FROM pagos_embarques ORDER BY id DESC", conn)
-
-                if df_all_pagos.empty:
-                    st.info("No hay pagos registrados para modificar.")
-                else:
-                    pagos_map = {
-                        row['id']: f"ID #{row['id']} | Inv: {row['num_invoice']} | [{row['tipo_pago']}] | Ref: {row['referencia']} | Monto: ${row['monto']:,.2f} USD" 
-                        for _, row in df_all_pagos.iterrows()
-                    }
-
-                    selected_pago_id = st.selectbox(
-                        "Selecciona el pago que deseas modificar o eliminar:", 
-                        list(pagos_map.keys()), 
-                        format_func=lambda x: pagos_map[x]
-                    )
-
-                    pago_row = df_all_pagos[df_all_pagos['id'] == selected_pago_id].iloc[0]
-
-                    with st.form("form_edit_pago"):
-                        st.info(f"Editando Registro de Pago **ID #{selected_pago_id}** (Invoice: **{pago_row['num_invoice']}**)")
-                        
-                        col_e1, col_e2 = st.columns(2)
-                        with col_e1:
-                            tipo_pago_edit = st.selectbox(
-                                "Tipo de Pago", 
-                                TIPO_PAGO_LISTA, 
-                                index=TIPO_PAGO_LISTA.index(pago_row['tipo_pago']) if pago_row['tipo_pago'] in TIPO_PAGO_LISTA else 0
-                            )
-                            banco_pago_edit = st.selectbox(
-                                "Banco de Origen", 
-                                BANCOS_LISTA, 
-                                index=BANCOS_LISTA.index(pago_row['banco']) if pago_row['banco'] in BANCOS_LISTA else 0
-                            )
-                            monto_pago_edit = st.number_input(
-                                "Monto del Abono ($ USD)", 
-                                min_value=0.01, 
-                                value=float(pago_row['monto']), 
-                                step=100.0, 
-                                format="%.2f"
-                            )
-                        
-                        with col_e2:
-                            fecha_pago_edit = st.date_input("Fecha del Pago", value=safe_parse_date(pago_row['fecha_pago']))
-                            num_ref_edit = st.text_input("Número de Referencia", value=str(pago_row['referencia'] or ''))
-                            file_comp_edit = st.file_uploader("Reemplazar Comprobante (Opcional)", type=["png", "jpg", "jpeg", "pdf"])
-
-                        col_b1, col_b2 = st.columns(2)
-                        with col_b1:
-                            submit_pago_edit = st.form_submit_button("💾 Guardar Cambios en Pago", type="primary", use_container_width=True)
-                        with col_b2:
-                            delete_pago = st.form_submit_button("🗑️ ELIMINAR ESTE PAGO", type="secondary", use_container_width=True)
-
-                    if submit_pago_edit:
-                        if not num_ref_edit or monto_pago_edit <= 0:
-                            st.error("❌ El monto debe ser mayor a 0 y la referencia no puede estar vacía.")
-                        else:
-                            new_path = save_file(file_comp_edit, f"{pago_row['num_invoice']}_{num_ref_edit}", "COMPROBANTE", is_payment=True) or pago_row['path_comprobante']
-                            
-                            c = conn.cursor()
-                            c.execute('''
-                                UPDATE pagos_embarques 
-                                SET tipo_pago = ?, banco = ?, monto = ?, fecha_pago = ?, referencia = ?, path_comprobante = ?
-                                WHERE id = ?
-                            ''', (tipo_pago_edit, banco_pago_edit, monto_pago_edit, str(fecha_pago_edit), num_ref_edit, new_path, selected_pago_id))
-                            conn.commit()
-                            st.success(f"✅ ¡El pago ID #{selected_pago_id} ha sido actualizado correctamente!")
-                            st.rerun()
-
-                    if delete_pago:
-                        c = conn.cursor()
-                        c.execute("DELETE FROM pagos_embarques WHERE id = ?", (selected_pago_id,))
-                        conn.commit()
-                        st.warning(f"🗑️ El pago ID #{selected_pago_id} ha sido eliminado.")
-                        st.rerun()
-
-            st.markdown("---")
-            st.subheader("📊 Historial General de Pagos Registrados")
-            df_all_pagos = pd.read_sql_query("SELECT * FROM pagos_embarques ORDER BY id DESC", conn)
-            
-            if df_all_pagos.empty:
-                st.info("No se registra ningún pago en el sistema.")
+            if df_emb.empty:
+                st.warning("⚠️ Primero debe registrar al menos un embarque para asignarle pagos.")
             else:
-                st.dataframe(
-                    df_all_pagos[['id', 'num_invoice', 'tipo_pago', 'banco', 'monto', 'fecha_pago', 'referencia']],
-                    use_container_width=True,
-                    hide_index=True
-                )
+                invoices_map = {row['num_invoice']: f"{row['num_invoice']} - {row['fabricante']} (Contenedor: {row['num_contenedor']})" for _, row in df_emb.iterrows()}
+                
+                tab_nuevo, tab_editar = st.tabs(["➕ Registrar Nuevo Pago", "✏️ Editar / Eliminar Pago Existente"])
+    
+                with tab_nuevo:
+                    st.subheader("➕ Registrar Nuevo Abono / Pago")
+                    with st.form("form_registrar_pago", clear_on_submit=True):
+                        col_p1, col_p2 = st.columns(2)
+                        
+                        with col_p1:
+                            selected_inv_key = st.selectbox("Seleccione Embarque / Invoice *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x], key="new_pago_inv")
+                            tipo_pago = st.selectbox("Tipo de Pago *", TIPO_PAGO_LISTA, key="new_pago_tipo")
+                            banco_pago = st.selectbox("Banco / Plataforma de Origen *", BANCOS_LISTA, key="new_pago_banco")
+                            monto_pago = st.number_input("Monto del Abono ($ USD) *", min_value=0.01, step=100.0, format="%.2f", key="new_pago_monto")
+                            
+                        with col_p2:
+                            fecha_pago = st.date_input("Fecha de Transferencia", value=date.today(), key="new_pago_fecha")
+                            num_ref = st.text_input("Número de Referencia / Comprobante *", key="new_pago_ref")
+                            file_comprobante = st.file_uploader(
+                                "Subir Comprobante (JPG, PNG, PDF) *", 
+                                type=["png", "jpg", "jpeg", "pdf"],
+                                key="new_pago_file"
+                            )
+    
+                        submit_pago = st.form_submit_button("💳 Registrar Pago / Abono", type="primary", use_container_width=True)
+    
+                        if submit_pago:
+                            if not num_ref or file_comprobante is None or monto_pago <= 0:
+                                st.error("❌ Todos los campos marcados con (*) son obligatorios, incluyendo el comprobante.")
+                            else:
+                                ref_clean = "".join(c for c in num_ref if c.isalnum() or c in ('-', '_'))
+                                file_path_pago = save_file(file_comprobante, f"{selected_inv_key}_{ref_clean}", "COMPROBANTE", is_payment=True)
+                                
+                                c = conn.cursor()
+                                c.execute('''
+                                    INSERT INTO pagos_embarques (num_invoice, tipo_pago, banco, monto, fecha_pago, referencia, path_comprobante)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                ''', (selected_inv_key, tipo_pago, banco_pago, monto_pago, str(fecha_pago), num_ref, file_path_pago))
+                                
+                                if tipo_pago == "Pago a Fábrica":
+                                    c.execute("SELECT estatus FROM embarques WHERE num_invoice = ?", (selected_inv_key,))
+                                    estatus_actual = c.fetchone()[0]
+                                    if estatus_actual == "Pendiente Pago":
+                                        c.execute("UPDATE embarques SET estatus = 'En Producción' WHERE num_invoice = ?", (selected_inv_key,))
+                                        st.info("ℹ️ **Estatus Actualizado:** El embarque cambió automáticamente de 'Pendiente Pago' a **'En Producción'**.")
+    
+                                conn.commit()
+                                st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado con éxito para la Invoice {selected_inv_key}.")
+                                st.rerun()
+    
+                with tab_editar:
+                    st.subheader("🛠️ Modificar o Eliminar un Pago Registrado")
+                    df_all_pagos = pd.read_sql_query("SELECT * FROM pagos_embarques ORDER BY id DESC", conn)
+    
+                    if df_all_pagos.empty:
+                        st.info("No hay pagos registrados para modificar.")
+                    else:
+                        pagos_map = {
+                            row['id']: f"ID #{row['id']} | Inv: {row['num_invoice']} | [{row['tipo_pago']}] | Ref: {row['referencia']} | Monto: ${row['monto']:,.2f} USD" 
+                            for _, row in df_all_pagos.iterrows()
+                        }
+    
+                        selected_pago_id = st.selectbox(
+                            "Selecciona el pago que deseas modificar o eliminar:", 
+                            list(pagos_map.keys()), 
+                            format_func=lambda x: pagos_map[x]
+                        )
+    
+                        pago_row = df_all_pagos[df_all_pagos['id'] == selected_pago_id].iloc[0]
+    
+                        with st.form("form_edit_pago"):
+                            st.info(f"Editando Registro de Pago **ID #{selected_pago_id}** (Invoice: **{pago_row['num_invoice']}**)")
+                            
+                            col_e1, col_e2 = st.columns(2)
+                            with col_e1:
+                                tipo_pago_edit = st.selectbox(
+                                    "Tipo de Pago", 
+                                    TIPO_PAGO_LISTA, 
+                                    index=TIPO_PAGO_LISTA.index(pago_row['tipo_pago']) if pago_row['tipo_pago'] in TIPO_PAGO_LISTA else 0
+                                )
+                                banco_pago_edit = st.selectbox(
+                                    "Banco de Origen", 
+                                    BANCOS_LISTA, 
+                                    index=BANCOS_LISTA.index(pago_row['banco']) if pago_row['banco'] in BANCOS_LISTA else 0
+                                )
+                                monto_pago_edit = st.number_input(
+                                    "Monto del Abono ($ USD)", 
+                                    min_value=0.01, 
+                                    value=float(pago_row['monto']), 
+                                    step=100.0, 
+                                    format="%.2f"
+                                )
+                            
+                            with col_e2:
+                                fecha_pago_edit = st.date_input("Fecha del Pago", value=safe_parse_date(pago_row['fecha_pago']))
+                                num_ref_edit = st.text_input("Número de Referencia", value=str(pago_row['referencia'] or ''))
+                                file_comp_edit = st.file_uploader("Reemplazar Comprobante (Opcional)", type=["png", "jpg", "jpeg", "pdf"])
+    
+                            col_b1, col_b2 = st.columns(2)
+                            with col_b1:
+                                submit_pago_edit = st.form_submit_button("💾 Guardar Cambios en Pago", type="primary", use_container_width=True)
+                            with col_b2:
+                                delete_pago = st.form_submit_button("🗑️ ELIMINAR ESTE PAGO", type="secondary", use_container_width=True)
+    
+                        if submit_pago_edit:
+                            if not num_ref_edit or monto_pago_edit <= 0:
+                                st.error("❌ El monto debe ser mayor a 0 y la referencia no puede estar vacía.")
+                            else:
+                                new_path = save_file(file_comp_edit, f"{pago_row['num_invoice']}_{num_ref_edit}", "COMPROBANTE", is_payment=True) or pago_row['path_comprobante']
+                                
+                                c = conn.cursor()
+                                c.execute('''
+                                    UPDATE pagos_embarques 
+                                    SET tipo_pago = ?, banco = ?, monto = ?, fecha_pago = ?, referencia = ?, path_comprobante = ?
+                                    WHERE id = ?
+                                ''', (tipo_pago_edit, banco_pago_edit, monto_pago_edit, str(fecha_pago_edit), num_ref_edit, new_path, selected_pago_id))
+                                conn.commit()
+                                st.success(f"✅ ¡El pago ID #{selected_pago_id} ha sido actualizado correctamente!")
+                                st.rerun()
+    
+                        if delete_pago:
+                            c = conn.cursor()
+                            c.execute("DELETE FROM pagos_embarques WHERE id = ?", (selected_pago_id,))
+                            conn.commit()
+                            st.warning(f"🗑️ El pago ID #{selected_pago_id} ha sido eliminado.")
+                            st.rerun()
+    
+                st.markdown("---")
+                st.subheader("📊 Historial General de Pagos Registrados")
+                df_all_pagos = pd.read_sql_query("SELECT * FROM pagos_embarques ORDER BY id DESC", conn)
+                
+                if df_all_pagos.empty:
+                    st.info("No se registra ningún pago en el sistema.")
+                else:
+                    st.dataframe(
+                        df_all_pagos[['id', 'num_invoice', 'tipo_pago', 'banco', 'monto', 'fecha_pago', 'referencia']],
+                        use_container_width=True,
+                        hide_index=True
+                    )
 
     # --- VISTA 3: CARGA MASIVA ---
 elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
