@@ -804,11 +804,13 @@ if menu == "📋 Control de Embarques":
                 st.success("✅ ¡Embarque actualizado con éxito!")
                 st.rerun()
 
+   # =========================================================================
     # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
+    # =========================================================================
     elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
         st.title("💳 Registro y Control de Pagos Internacionales")
         st.caption("Módulo exclusivo para Compras: Administra, modifica y elimina transferencias realizadas")
-    
+
         df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, num_contenedor, monto_factura, estatus FROM embarques", conn)
         
         if df_emb.empty:
@@ -817,7 +819,7 @@ if menu == "📋 Control de Embarques":
             invoices_map = {row['num_invoice']: f"{row['num_invoice']} - {row['fabricante']} (Contenedor: {row['num_contenedor']})" for _, row in df_emb.iterrows()}
             
             tab_nuevo, tab_editar = st.tabs(["➕ Registrar Nuevo Pago", "✏️ Editar / Eliminar Pago Existente"])
-    
+
             with tab_nuevo:
                 st.subheader("➕ Registrar Nuevo Abono / Pago")
                 with st.form("form_registrar_pago", clear_on_submit=True):
@@ -837,9 +839,9 @@ if menu == "📋 Control de Embarques":
                             type=["png", "jpg", "jpeg", "pdf"],
                             key="new_pago_file"
                         )
-    
+
                     submit_pago = st.form_submit_button("💳 Registrar Pago / Abono", type="primary", use_container_width=True)
-    
+
                     if submit_pago:
                         if not num_ref or file_comprobante is None or monto_pago <= 0:
                             st.error("❌ Todos los campos marcados con (*) son obligatorios, incluyendo el comprobante.")
@@ -859,15 +861,15 @@ if menu == "📋 Control de Embarques":
                                 if estatus_actual == "Pendiente Pago":
                                     c.execute("UPDATE embarques SET estatus = 'En Producción' WHERE num_invoice = ?", (selected_inv_key,))
                                     st.info("ℹ️ **Estatus Actualizado:** El embarque cambió automáticamente de 'Pendiente Pago' a **'En Producción'**.")
-    
+
                             conn.commit()
                             st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado con éxito para la Invoice {selected_inv_key}.")
                             st.rerun()
-    
+
             with tab_editar:
                 st.subheader("🛠️ Modificar o Eliminar un Pago Registrado")
                 df_all_pagos = pd.read_sql_query("SELECT * FROM pagos_embarques ORDER BY id DESC", conn)
-    
+
                 if df_all_pagos.empty:
                     st.info("No hay pagos registrados para modificar.")
                 else:
@@ -875,15 +877,15 @@ if menu == "📋 Control de Embarques":
                         row['id']: f"ID #{row['id']} | Inv: {row['num_invoice']} | [{row['tipo_pago']}] | Ref: {row['referencia']} | Monto: ${row['monto']:,.2f} USD" 
                         for _, row in df_all_pagos.iterrows()
                     }
-    
+
                     selected_pago_id = st.selectbox(
                         "Selecciona el pago que deseas modificar o eliminar:", 
                         list(pagos_map.keys()), 
                         format_func=lambda x: pagos_map[x]
                     )
-    
+
                     pago_row = df_all_pagos[df_all_pagos['id'] == selected_pago_id].iloc[0]
-    
+
                     with st.form("form_edit_pago"):
                         st.info(f"Editando Registro de Pago **ID #{selected_pago_id}** (Invoice: **{pago_row['num_invoice']}**)")
                         
@@ -911,13 +913,13 @@ if menu == "📋 Control de Embarques":
                             fecha_pago_edit = st.date_input("Fecha del Pago", value=safe_parse_date(pago_row['fecha_pago']))
                             num_ref_edit = st.text_input("Número de Referencia", value=str(pago_row['referencia'] or ''))
                             file_comp_edit = st.file_uploader("Reemplazar Comprobante (Opcional)", type=["png", "jpg", "jpeg", "pdf"])
-    
+
                         col_b1, col_b2 = st.columns(2)
                         with col_b1:
                             submit_pago_edit = st.form_submit_button("💾 Guardar Cambios en Pago", type="primary", use_container_width=True)
                         with col_b2:
                             delete_pago = st.form_submit_button("🗑️ ELIMINAR ESTE PAGO", type="secondary", use_container_width=True)
-    
+
                     if submit_pago_edit:
                         if not num_ref_edit or monto_pago_edit <= 0:
                             st.error("❌ El monto debe ser mayor a 0 y la referencia no puede estar vacía.")
@@ -933,14 +935,14 @@ if menu == "📋 Control de Embarques":
                             conn.commit()
                             st.success(f"✅ ¡El pago ID #{selected_pago_id} ha sido actualizado correctamente!")
                             st.rerun()
-    
+
                     if delete_pago:
                         c = conn.cursor()
                         c.execute("DELETE FROM pagos_embarques WHERE id = ?", (selected_pago_id,))
                         conn.commit()
                         st.warning(f"🗑️ El pago ID #{selected_pago_id} ha sido eliminado.")
                         st.rerun()
-    
+
             st.markdown("---")
             st.subheader("📊 Historial General de Pagos Registrados")
             df_all_pagos = pd.read_sql_query("SELECT * FROM pagos_embarques ORDER BY id DESC", conn)
