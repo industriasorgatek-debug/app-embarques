@@ -559,256 +559,250 @@ if menu == "📋 Control de Embarques":
                 st.markdown("---")
                 st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
-# --- AHORA LLAMAS A LAS DOS FUNCIONES AQUÍ ---
+                # =============================================================
+                # DIBUJAR LÍNEA DE TIEMPO Y ETA (UNA SOLA VEZ AQUÍ)
+                # =============================================================
                 render_timeline(row_data['estatus'])
 
-    eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
-    if eta_type == "error":
-        st.error(eta_msg)
-    elif eta_type == "warning":
-        st.warning(eta_msg)
-    elif eta_type == "success":
-        st.success(eta_msg)
-    else:
-        st.info(eta_msg)
-                    # -------------------------------------------------------------
-                    # RENDERIZADO VISUAL DEL CONTROL LOGÍSTICO (TIMELINE + ETA)
-                    # -------------------------------------------------------------
-                    # 1. Renderizar la barra visual de progreso (Timeline)
-        render_timeline(row_data['estatus'])
+                eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
+                if eta_type == "error":
+                    st.error(eta_msg)
+                elif eta_type == "warning":
+                    st.warning(eta_msg)
+                elif eta_type == "success":
+                    st.success(eta_msg)
+                else:
+                    st.info(eta_msg)
 
-                    # 2. Renderizar el semáforo/alerta dinámica del ETA
-    eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
-    if eta_type == "error":
-        st.error(eta_msg)
-    elif eta_type == "warning":
-        st.warning(eta_msg)
-    elif eta_type == "success":
-        st.success(eta_msg)
-    else:
-        st.info(eta_msg)
-    
-    if role == "admin":
-        es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
-        tiene_pago_ff = selected_invoice in invoices_con_pago_ff
-    
-    if not es_omito_flete and not tiene_pago_ff:
-            st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
-    elif tiene_pago_ff:
-        st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
+                # =============================================================
+                # ALERTAS DE FLETE (SOLO PARA ADMIN)
+                # =============================================================
+                if role == "admin":
+                    es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
+                    tiene_pago_ff = selected_invoice in invoices_con_pago_ff
 
-# 1. ROL ALMACÉN
-        if role == "almacen":
-            st.subheader("📦 Gestión de Almacén")
-                            
-        if has_valid_file(row_data['path_packing']):
-            with open(row_data['path_packing'], "rb") as f:
-                st.download_button(
-                    label=f"⬇️ Descargar Packing List ({selected_invoice})",
-                    data=f,
-                    file_name=os.path.basename(row_data['path_packing']),
-                    mime="application/octet-stream",
-                    type="primary",
-                    key=f"main_pack_{selected_invoice}"
+                    if not es_omito_flete and not tiene_pago_ff:
+                        st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
+                    elif tiene_pago_ff:
+                        st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
+
+                # =============================================================
+                # 1. ROL ALMACÉN
+                # =============================================================
+                if role == "almacen":
+                    st.subheader("📦 Gestión de Almacén")
+                    
+                    if has_valid_file(row_data['path_packing']):
+                        with open(row_data['path_packing'], "rb") as f:
+                            st.download_button(
+                                label=f"⬇️ Descargar Packing List ({selected_invoice})",
+                                data=f,
+                                file_name=os.path.basename(row_data['path_packing']),
+                                mime="application/octet-stream",
+                                type="primary",
+                                key=f"main_pack_{selected_invoice}"
+                            )
+                    else:
+                        st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
+
+                    if row_data['estatus'] == "En Aduanas":
+                        st.markdown("---")
+                        st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado'.")
+                        if st.button("✅ Marcar como ENTREGADO", type="primary"):
+                            c = conn.cursor()
+                            c.execute("UPDATE embarques SET estatus = 'Entregado' WHERE num_invoice = ?", (selected_invoice,))
+                            conn.commit()
+                            st.success("¡Estatus actualizado a 'Entregado' con éxito!")
+                            st.rerun()
+
+                # =============================================================
+                # 2. ROL ADMINISTRACIÓN
+                # =============================================================
+                elif role == "admon":
+                    st.subheader("💼 Expediente Digital del Embarque")
+                    docs = [
+                        ("Packing List", row_data['path_packing']),
+                        ("Factura Comercial (Invoice)", row_data['path_invoice']),
+                        ("Factura de Flete", row_data['path_flete']),
+                        ("Bill of Lading (BL)", row_data['path_bl'])
+                    ]
+                    
+                    col_d1, col_d2 = st.columns(2)
+                    for idx, (label, path) in enumerate(docs):
+                        col_target = col_d1 if idx % 2 == 0 else col_d2
+                        with col_target:
+                            if has_valid_file(path):
+                                with open(path, "rb") as f:
+                                    st.download_button(
+                                        label=f"⬇️ Descargar {label}",
+                                        data=f,
+                                        file_name=os.path.basename(path),
+                                        mime="application/octet-stream",
+                                        key=f"main_admon_{label}_{selected_invoice}"
                                     )
-        else:
-            st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
-    
-        if row_data['estatus'] == "En Aduanas":
-            st.markdown("---")
-            st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado'.")
-            if st.button("✅ Marcar como ENTREGADO", type="primary"):
-                c = conn.cursor()
-                c.execute("UPDATE embarques SET estatus = 'Entregado' WHERE num_invoice = ?", (selected_invoice,))
-                conn.commit()
-                st.success("¡Estatus actualizado a 'Entregado' con éxito!")
-                st.rerun()
+                            else:
+                                st.caption(f"❌ {label}: No cargado")
 
-    # 2. ROL ADMINISTRACIÓN
-    elif role == "admon":
-        st.subheader("💼 Expediente Digital del Embarque")
-        docs = [
-            ("Packing List", row_data['path_packing']),
-            ("Factura Comercial (Invoice)", row_data['path_invoice']),
-            ("Factura de Flete", row_data['path_flete']),
-            ("Bill of Lading (BL)", row_data['path_bl'])
-        ]
+                # =============================================================
+                # 3. ROL COMPRAS (ADMIN)
+                # =============================================================
+                elif role == "admin":
+                    st.subheader("💼 Expediente Digital del Embarque")
+                    docs = [
+                        ("Packing List", row_data['path_packing']),
+                        ("Factura Comercial (Invoice)", row_data['path_invoice']),
+                        ("Factura de Flete", row_data['path_flete']),
+                        ("Bill of Lading (BL)", row_data['path_bl'])
+                    ]
+                    
+                    col_d1, col_d2 = st.columns(2)
+                    for idx, (label, path) in enumerate(docs):
+                        col_target = col_d1 if idx % 2 == 0 else col_d2
+                        with col_target:
+                            if has_valid_file(path):
+                                with open(path, "rb") as f:
+                                    st.download_button(
+                                        label=f"⬇️ Descargar {label}",
+                                        data=f,
+                                        file_name=os.path.basename(path),
+                                        mime="application/octet-stream",
+                                        key=f"main_compras_{label}_{selected_invoice}"
+                                    )
+                            else:
+                                st.caption(f"❌ {label}: No cargado")
+
+                    st.markdown("---")
+                    st.subheader(f"💰 Balance Financiero de Fábrica ({selected_invoice})")
+                    
+                    df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
+                    df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
+                    
+                    monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
+                    monto_factura = float(row_data['monto_factura']) if pd.notna(row_data['monto_factura']) else 0.0
+                    saldo_pendiente = monto_factura - monto_total_pagado_fabrica
+
+                    m1, m2 = st.columns(2)
+                    m1.metric("Monto Total Factura (Fábrica)", f"${monto_factura:,.2f} USD")
+                    m2.metric("Total Abonado a Fábrica", f"${monto_total_pagado_fabrica:,.2f} USD")
+                    
+                    if saldo_pendiente <= 0 and monto_factura > 0:
+                        st.success(f"🟢 **Saldo Pendiente Fábrica:** $0.00 USD — ¡PAGADO COMPLETAMENTE!")
+                    elif saldo_pendiente > 0:
+                        st.error(f"🔴 **Saldo Pendiente por Pagar a Fábrica:** ${saldo_pendiente:,.2f} USD")
+                    else:
+                        st.info(f"⚪ **Saldo Pendiente por Pagar a Fábrica:** $0.00 USD")
+
+                    st.markdown("---")
+                    if df_pagos_emb.empty:
+                        st.info("No se han registrado pagos o abonos para este embarque.")
+                    else:
+                        st.markdown("##### 📄 Historial de Pagos y Comprobantes Registrados:")
+                        for idx, p_row in df_pagos_emb.iterrows():
+                            c_p1, c_p2, c_p3, c_p4 = st.columns([2, 2, 2, 2])
                             
-        col_d1, col_d2 = st.columns(2)
-        for idx, (label, path) in enumerate(docs):
-            col_target = col_d1 if idx % 2 == 0 else col_d2
-            with col_target:
-                if has_valid_file(path):
-                    with open(path, "rb") as f:
-                        st.download_button(
-                            label=f"⬇️ Descargar {label}",
-                            data=f,
-                            file_name=os.path.basename(path),
-                            mime="application/octet-stream",
-                            key=f"main_admon_{label}_{selected_invoice}"
-                        )
-                else:
-                    st.caption(f"❌ {label}: No cargado")
+                            badge = "🏭" if p_row['tipo_pago'] == 'Pago a Fábrica' else "🚢"
+                            c_p1.write(f"**Tipo:** {badge} {p_row['tipo_pago']}")
+                            c_p2.write(f"**Banco:** {p_row['banco']}")
+                            c_p3.write(f"**Monto:** ${p_row['monto']:,.2f} USD")
+                            c_p4.write(f"**Ref:** {p_row['referencia']} ({p_row['fecha_pago']})")
+                            
+                            if has_valid_file(p_row['path_comprobante']):
+                                with open(p_row['path_comprobante'], "rb") as f_comp:
+                                    st.download_button(
+                                        label=f"📄 Ver Comprobante #{p_row['referencia']}",
+                                        data=f_comp,
+                                        file_name=os.path.basename(p_row['path_comprobante']),
+                                        mime="application/octet-stream",
+                                        key=f"dl_pago_{p_row['id']}"
+                                    )
+                            st.divider()
 
-# 3. ROL COMPRAS (ADMIN)
-    elif role == "admin":
-        st.subheader("💼 Expediente Digital del Embarque")
-        docs = [
-            ("Packing List", row_data['path_packing']),
-            ("Factura Comercial (Invoice)", row_data['path_invoice']),
-            ("Factura de Flete", row_data['path_flete']),
-            ("Bill of Lading (BL)", row_data['path_bl'])
-        ]
-        
-        col_d1, col_d2 = st.columns(2)
-        for idx, (label, path) in enumerate(docs):
-            col_target = col_d1 if idx % 2 == 0 else col_d2
-            with col_target:
-                if has_valid_file(path):
-                    with open(path, "rb") as f:
-                        st.download_button(
-                            label=f"⬇️ Descargar {label}",
-                            data=f,
-                            file_name=os.path.basename(path),
-                            mime="application/octet-stream",
-                            key=f"main_compras_{label}_{selected_invoice}"
-                        )
-                else:
-                    st.caption(f"❌ {label}: No cargado")
-    
-        st.markdown("---")
-        st.subheader(f"💰 Balance Financiero de Fábrica ({selected_invoice})")
-        
-        df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
-        df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
-        
-        monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
-        monto_factura = float(row_data['monto_factura']) if pd.notna(row_data['monto_factura']) else 0.0
-        saldo_pendiente = monto_factura - monto_total_pagado_fabrica
-    
-        m1, m2 = st.columns(2)
-        m1.metric("Monto Total Factura (Fábrica)", f"${monto_factura:,.2f} USD")
-        m2.metric("Total Abonado a Fábrica", f"${monto_total_pagado_fabrica:,.2f} USD")
-        
-        if saldo_pendiente <= 0 and monto_factura > 0:
-            st.success(f"🟢 **Saldo Pendiente Fábrica:** $0.00 USD — ¡PAGADO COMPLETAMENTE!")
-        elif saldo_pendiente > 0:
-            st.error(f"🔴 **Saldo Pendiente por Pagar a Fábrica:** ${saldo_pendiente:,.2f} USD")
-        else:
-            st.info(f"⚪ **Saldo Pendiente por Pagar a Fábrica:** $0.00 USD")
-    
-        st.markdown("---")
-        if df_pagos_emb.empty:
-            st.info("No se han registrado pagos o abonos para este embarque.")
-        else:
-            st.markdown("##### 📄 Historial de Pagos y Comprobantes Registrados:")
-            for idx, p_row in df_pagos_emb.iterrows():
-                c_p1, c_p2, c_p3, c_p4 = st.columns([2, 2, 2, 2])
-                
-                badge = "🏭" if p_row['tipo_pago'] == 'Pago a Fábrica' else "🚢"
-                c_p1.write(f"**Tipo:** {badge} {p_row['tipo_pago']}")
-                c_p2.write(f"**Banco:** {p_row['banco']}")
-                c_p3.write(f"**Monto:** ${p_row['monto']:,.2f} USD")
-                c_p4.write(f"**Ref:** {p_row['referencia']} ({p_row['fecha_pago']})")
-                
-                if has_valid_file(p_row['path_comprobante']):
-                    with open(p_row['path_comprobante'], "rb") as f_comp:
-                        st.download_button(
-                            label=f"📄 Ver Comprobante #{p_row['referencia']}",
-                            data=f_comp,
-                            file_name=os.path.basename(p_row['path_comprobante']),
-                            mime="application/octet-stream",
-                            key=f"dl_pago_{p_row['id']}"
-                        )
-                st.divider()
-    
-        st.markdown("---")
-        
-        # BOTONES DE ACCIÓN
-        col_b1, col_b2 = st.columns(2)
-        
-        with col_b1:
-            if st.button(f"✏️ Desplegar Edición Rápida ({selected_invoice})", type="primary", use_container_width=True):
-                st.session_state.editing_invoice = selected_invoice
-    
-        with col_b2:
-            pdf_data = generar_pdf_embarque(row_data, df_pagos_emb)
-            st.download_button(
-                label=f"📄 Imprimir Ficha PDF ({selected_invoice})",
-                data=pdf_data,
-                file_name=f"Ficha_Embarque_{selected_invoice}.pdf",
-                mime="application/pdf",
-                type="secondary",
-                use_container_width=True,
-                key=f"btn_pdf_{selected_invoice}"
-            )
+                    st.markdown("---")
+                    
+                    # BOTONES DE ACCIÓN
+                    col_b1, col_b2 = st.columns(2)
+                    
+                    with col_b1:
+                        if st.button(f"✏️ Desplegar Edición Rápida ({selected_invoice})", type="primary", use_container_width=True):
+                            st.session_state.editing_invoice = selected_invoice
 
-# Formulario de Edición Rápida
-if role == "admin" and st.session_state.editing_invoice:
-    st.markdown("---")
-    st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
-    row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
-    
-    with st.form("form_quick_edit"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.text_input("Número de Invoice", value=str(row_data['num_invoice']), disabled=True)
-            fabricante_e = st.text_input("Fabricante / Proveedor", value=str(row_data['fabricante'] or ''))
-            monto_factura_e = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row_data['monto_factura'] or 0.0), step=100.0, format="%.2f")
-            producto_e = st.text_input("Descripción del Producto", value=str(row_data['producto'] or ''))
-            origen_e = st.text_input("Origen", value=str(row_data['origen'] or ''))
-            destino_e = st.text_input("Destino", value=str(row_data['destino'] or ''))
+                    with col_b2:
+                        pdf_data = generar_pdf_embarque(row_data, df_pagos_emb)
+                        st.download_button(
+                            label=f"📄 Imprimir Ficha PDF ({selected_invoice})",
+                            data=pdf_data,
+                            file_name=f"Ficha_Embarque_{selected_invoice}.pdf",
+                            mime="application/pdf",
+                            type="secondary",
+                            use_container_width=True,
+                            key=f"btn_pdf_{selected_invoice}"
+                        )
+
+        # Formulario de Edición Rápida
+        if role == "admin" and st.session_state.editing_invoice:
+            st.markdown("---")
+            st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
+            row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
             
-        with col2:
-            num_bl_e = st.text_input("Número de BL", value=str(row_data['num_bl'] or ''))
-            nav_val = str(row_data['naviera']) if row_data['naviera'] in NAVIERAS else NAVIERAS[0]
-            naviera_e = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
-            num_contenedor_e = st.text_input("Número de Contenedor", value=str(row_data['num_contenedor'] or ''))
-            agente_carga_e = st.text_input("Agente de Carga", value=str(row_data['agente_carga'] or ''))
-            agente_aduanas_e = st.text_input("Agente de Aduanas", value=str(row_data['agente_aduanas'] or ''))
-            
-        with col3:
-            consignatario_e = st.text_input("Consignatario", value=str(row_data['consignatario'] or ''))
-            fecha_v = safe_parse_date(row_data['eta'])
-            eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
-            est_v = str(row_data['estatus']) if row_data['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
-            estatus_e = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_v))
-        
-        st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            q_file_pack = st.file_uploader("Nuevo Packing List", type=["pdf", "xlsx"], key="q_pack")
-            q_file_inv = st.file_uploader("Nueva Factura Comercial", type=["pdf"], key="q_inv")
-        with col_f2:
-            q_file_fle = st.file_uploader("Nueva Factura Flete", type=["pdf"], key="q_fle")
-            q_file_bl = st.file_uploader("Nuevo BL", type=["pdf"], key="q_bl")
+            with st.form("form_quick_edit"):
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.text_input("Número de Invoice", value=str(row_data['num_invoice']), disabled=True)
+                    fabricante_e = st.text_input("Fabricante / Proveedor", value=str(row_data['fabricante'] or ''))
+                    monto_factura_e = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row_data['monto_factura'] or 0.0), step=100.0, format="%.2f")
+                    producto_e = st.text_input("Descripción del Producto", value=str(row_data['producto'] or ''))
+                    origen_e = st.text_input("Origen", value=str(row_data['origen'] or ''))
+                    destino_e = st.text_input("Destino", value=str(row_data['destino'] or ''))
+                    
+                with col2:
+                    num_bl_e = st.text_input("Número de BL", value=str(row_data['num_bl'] or ''))
+                    nav_val = str(row_data['naviera']) if row_data['naviera'] in NAVIERAS else NAVIERAS[0]
+                    naviera_e = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
+                    num_contenedor_e = st.text_input("Número de Contenedor", value=str(row_data['num_contenedor'] or ''))
+                    agente_carga_e = st.text_input("Agente de Carga", value=str(row_data['agente_carga'] or ''))
+                    agente_aduanas_e = st.text_input("Agente de Aduanas", value=str(row_data['agente_aduanas'] or ''))
+                    
+                with col3:
+                    consignatario_e = st.text_input("Consignatario", value=str(row_data['consignatario'] or ''))
+                    fecha_v = safe_parse_date(row_data['eta'])
+                    eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
+                    est_v = str(row_data['estatus']) if row_data['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
+                    estatus_e = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_v))
+                
+                st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    q_file_pack = st.file_uploader("Nuevo Packing List", type=["pdf", "xlsx"], key="q_pack")
+                    q_file_inv = st.file_uploader("Nueva Factura Comercial", type=["pdf"], key="q_inv")
+                with col_f2:
+                    q_file_fle = st.file_uploader("Nueva Factura Flete", type=["pdf"], key="q_fle")
+                    q_file_bl = st.file_uploader("Nuevo BL", type=["pdf"], key="q_bl")
 
-        # 👈 ESTA LÍNEA DEBE ESTAR INDENTADA DENTRO DEL "with st.form('form_quick_edit'):"
-        submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
-        
-    if submit_q_edit:
-        p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
-        p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
-        p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
-        p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
-        
-        c = conn.cursor()
-        c.execute('''
-            UPDATE embarques SET
-                origen = ?, destino = ?, fabricante = ?, agente_carga = ?,
-                agente_aduanas = ?, consignatario = ?, producto = ?, num_bl = ?,
-                naviera = ?, num_contenedor = ?, eta = ?, estatus = ?,
-                path_packing = ?, path_invoice = ?, path_flete = ?, path_bl = ?,
-                monto_factura = ?
-            WHERE num_invoice = ?
-        ''', (origen_e, destino_e, fabricante_e, agente_carga_e,
-              agente_aduanas_e, consignatario_e, producto_e, num_bl_e,
-              naviera_e, num_contenedor_e, str(eta_e), estatus_e,
-              p_pack, p_inv, p_fle, p_bl, monto_factura_e, st.session_state.editing_invoice))
-        conn.commit()
-        st.session_state.editing_invoice = None
-        st.success("✅ ¡Embarque actualizado con éxito!")
-        st.rerun()
+                submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
+                
+            if submit_q_edit:
+                p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
+                p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
+                p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
+                p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
+                
+                c = conn.cursor()
+                c.execute('''
+                    UPDATE embarques SET
+                        origen = ?, destino = ?, fabricante = ?, agente_carga = ?,
+                        agente_aduanas = ?, consignatario = ?, producto = ?, num_bl = ?,
+                        naviera = ?, num_contenedor = ?, eta = ?, estatus = ?,
+                        path_packing = ?, path_invoice = ?, path_flete = ?, path_bl = ?,
+                        monto_factura = ?
+                    WHERE num_invoice = ?
+                ''', (origen_e, destino_e, fabricante_e, agente_carga_e,
+                      agente_aduanas_e, consignatario_e, producto_e, num_bl_e,
+                      naviera_e, num_contenedor_e, str(eta_e), estatus_e,
+                      p_pack, p_inv, p_fle, p_bl, monto_factura_e, st.session_state.editing_invoice))
+                conn.commit()
+                st.session_state.editing_invoice = None
+                st.success("✅ ¡Embarque actualizado con éxito!")
+                st.rerun()
 
     # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
     elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
