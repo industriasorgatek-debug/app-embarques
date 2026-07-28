@@ -564,14 +564,26 @@ if menu == "📋 Control de Embarques":
                 elif eta_type == "success": st.success(eta_msg)
                 else: st.info(eta_msg)
 
-                # TRACKING DIRECTO
-                st.markdown("##### 📡 Rastreo de Carga en Tiempo Real")
-                url_track, label_track, info_ref = get_tracking_info(row_data['naviera'], row_data['num_contenedor'], row_data['num_bl'])
-                c_track1, c_track2 = st.columns([3, 1])
-                with c_track1: st.caption(f"Línea Naviera: **{row_data['naviera'] or 'No especificada'}** | {info_ref}")
-                with c_track2:
-                    if url_track: st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
-                    else: st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
+# TRACKING DIRECTO
+st.markdown("##### 📡 Rastreo de Carga en Tiempo Real")
+url_track, label_track, info_ref = get_tracking_info(row_data['naviera'], row_data['num_contenedor'], row_data['num_bl'])
+ref_val = row_data['num_contenedor'] if pd.notna(row_data['num_contenedor']) and str(row_data['num_contenedor']).strip() not in ['', 'None', 'nan'] else row_data['num_bl']
+
+st.caption(f"Línea Naviera: **{row_data['naviera'] or 'No especificada'}** | {info_ref}")
+
+c_track1, c_track2 = st.columns(2)
+
+with c_track1:
+    if url_track:
+        st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
+    else:
+        st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
+
+with c_track2:
+    if ref_val and str(ref_val).strip() not in ['', 'None', 'nan']:
+        # Rastreador universal como respaldo 100% garantizado
+        url_searates = f"https://www.searates.com/container/tracking/?container={urllib.parse.quote(str(ref_val).strip())}"
+        st.link_button(label="🔍 Rastreo Universal (SeaRates)", url=url_searates, type="secondary", use_container_width=True)
 
                 st.divider()
 
