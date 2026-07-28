@@ -207,26 +207,42 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
     bl = str(num_bl).strip().upper() if pd.notna(num_bl) else ""
     nav = str(naviera).strip().upper() if pd.notna(naviera) else ""
     
+    # Preferimos el Contenedor para rastreo naviero, si no existe usamos el BL
     ref = cont if cont and cont not in ['NONE', 'NAN', ''] else bl
     if not ref or ref in ['NONE', 'NAN', '']:
         return None, None, "⚠️ Sin Contenedor / BL asignado"
 
     encoded_ref = urllib.parse.quote(ref)
     
+    # MSC
     if "MSC" in nav:
         url, label = f"https://www.msc.com/en/track-a-shipment?number={encoded_ref}", "🌐 Rastrear en MSC"
+    
+    # MAERSK
     elif "MAERSK" in nav:
         url, label = f"https://www.maersk.com/tracking/{encoded_ref}", "🌐 Rastrear en Maersk"
+    
+    # CMA CGM (URL actualizada para el nuevo portal de envíos)
     elif "CMA" in nav:
-        url, label = f"https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy=Container&Reference={encoded_ref}", "🌐 Rastrear en CMA CGM"
+        url, label = f"https://www.cma-cgm.com/ebusiness/tracking/search?Reference={encoded_ref}", "🌐 Rastrear en CMA CGM"
+    
+    # HAPAG-LLOYD (URL actualizada de la Suite de Rastreo)
     elif "HAPAG" in nav:
-        url, label = f"https://www.hapag-lloyd.com/en/online-business/track/track-by-container.html?container={encoded_ref}", "🌐 Rastrear en Hapag-Lloyd"
+        url, label = f"https://www.hapag-lloyd.com/en/online-business/track/tracking-beta.html?container={encoded_ref}", "🌐 Rastrear en Hapag-Lloyd"
+    
+    # ONE LINE
     elif "ONE" in nav:
         url, label = f"https://ecomm.one-line.com/one-ecom/cargo-tracking?searchType=C&number={encoded_ref}", "🌐 Rastrear en ONE Line"
+    
+    # COSCO SHIPPING
     elif "COSCO" in nav:
         url, label = f"https://lines.coscoshipping.com/ebusiness/cargo-tracking?type=CONTAINER_NO&number={encoded_ref}", "🌐 Rastrear en COSCO"
+    
+    # EVERGREEN
     elif "EVERGREEN" in nav:
-        url, label = "https://www.shipmentlink.com/tms/servlet/TDB1_CargoTracking.do", "🌐 Portal Evergreen"
+        url, label = f"https://www.shipmentlink.com/tms/servlet/TDB1_CargoTracking.do?sel_type=CONTAINER&cntr_no={encoded_ref}", "🌐 Portal Evergreen"
+    
+    # OTRAS / DEFAULT (Rastreador Universal SeaRates)
     else:
         url, label = f"https://www.searates.com/container/tracking/?container={encoded_ref}", "🌐 Rastrear en SeaRates"
 
