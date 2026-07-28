@@ -743,14 +743,14 @@ if menu == "📋 Control de Embarques":
                 key=f"btn_pdf_{selected_invoice}"
             )
 
-    # Formulario de Edición Rápida
-        if role == "admin" and st.session_state.editing_invoice:
-            st.markdown("---")
-            st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
-            row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
-        
-        with st.form("form_quick_edit"):
-            col1, col2, col3 = st.columns(3)
+# Formulario de Edición Rápida
+if role == "admin" and st.session_state.editing_invoice:
+    st.markdown("---")
+    st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
+    row_data = df[df['num_invoice'] == st.session_state.editing_invoice].iloc[0]
+    
+    with st.form("form_quick_edit"):
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.text_input("Número de Invoice", value=str(row_data['num_invoice']), disabled=True)
             fabricante_e = st.text_input("Fabricante / Proveedor", value=str(row_data['fabricante'] or ''))
@@ -782,15 +782,16 @@ if menu == "📋 Control de Embarques":
         with col_f2:
             q_file_fle = st.file_uploader("Nueva Factura Flete", type=["pdf"], key="q_fle")
             q_file_bl = st.file_uploader("Nuevo BL", type=["pdf"], key="q_bl")
-        
+
+        # 👈 ESTA LÍNEA DEBE ESTAR INDENTADA DENTRO DEL "with st.form('form_quick_edit'):"
         submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
         
-        if submit_q_edit:
-            p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
-            p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
-            p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
-            p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
-            
+    if submit_q_edit:
+        p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
+        p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
+        p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
+        p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
+        
         c = conn.cursor()
         c.execute('''
             UPDATE embarques SET
