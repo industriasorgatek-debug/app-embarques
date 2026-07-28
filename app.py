@@ -411,153 +411,153 @@ if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
 conn = sqlite3.connect(DB_PATH)
 
 # --- VISTA 1: CONTROL DE EMBARQUES ---
-    if menu == "📋 Control de Embarques":
-        st.title("📋 Control General de Embarques")
-        st.caption("Visualización interactiva, búsqueda en tiempo real y gestión de archivos")
-        
-        df = pd.read_sql_query("SELECT * FROM embarques", conn)
-        df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
-        
-        if df.empty:
-            st.info("No hay embarques registrados aún.")
+if menu == "📋 Control de Embarques":
+    st.title("📋 Control General de Embarques")
+    st.caption("Visualización interactiva, búsqueda en tiempo real y gestión de archivos")
+    
+    df = pd.read_sql_query("SELECT * FROM embarques", conn)
+    df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
+    
+    if df.empty:
+        st.info("No hay embarques registrados aún.")
+    else:
+        if not df_pagos_all.empty:
+            invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique()
         else:
-            if not df_pagos_all.empty:
-                invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique()
+            invoices_con_pago_ff = []
+
+        def check_pago_ff(row):
+            estatus = str(row['estatus']).strip()
+            inv = row['num_invoice']
+            if estatus in ['Entregado', 'Pendiente Pago']:
+                return '✅ No Aplica / Pagado'
+            elif inv in invoices_con_pago_ff:
+                return '🟢 Flete Pagado'
             else:
-                invoices_con_pago_ff = []
+                return '⚠️ PENDIENTE FLETE'
 
-            def check_pago_ff(row):
-                estatus = str(row['estatus']).strip()
-                inv = row['num_invoice']
-                if estatus in ['Entregado', 'Pendiente Pago']:
-                    return '✅ No Aplica / Pagado'
-                elif inv in invoices_con_pago_ff:
-                    return '🟢 Flete Pagado'
-                else:
-                    return '⚠️ PENDIENTE FLETE'
+        df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
-            df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
-
-            # -------------------------------------------------------------
-            # BARRA DE BÚSQUEDA GLOBAL Y FILTROS COMBINADOS
-            # -------------------------------------------------------------
-            with st.expander("🔍 **Buscador y Filtros Avanzados**", expanded=True):
-                col_f1, col_f2, col_f3, col_f4 = st.columns([2, 1, 1, 1])
-                
-                with col_f1:
-                    search_term = st.text_input(
-                        "🔎 Búsqueda Global", 
-                        placeholder="Escribe N° Invoice, Contenedor, BL, Fabricante o Producto...",
-                        key="search_global"
-                    )
-                
-                with col_f2:
-                    opciones_estatus = ["Todos"] + ESTATUS_LISTA
-                    filtro_estatus = st.selectbox("Estatus del Embarque", opciones_estatus, index=0)
-
-                with col_f3:
-                    opciones_navieras = ["Todas"] + NAVIERAS
-                    filtro_naviera = st.selectbox("Línea Naviera", opciones_navieras, index=0)
-
-                with col_f4:
-                    if role == "admin":
-                        opciones_flete = ["Todos", "⚠️ PENDIENTE FLETE", "🟢 Flete Pagado", "✅ No Aplica / Pagado"]
-                        filtro_flete = st.selectbox("Estado del Flete", opciones_flete, index=0)
-                    else:
-                        filtro_flete = "Todos"
-
-            # Aplicar la lógica de filtrado sobre el DataFrame
-            df_filtered = df.copy()
-
-            # 1. Filtro Búsqueda Texto
-            if search_term:
-                term = search_term.lower().strip()
-                mask = (
-                    df_filtered['num_invoice'].astype(str).str.lower().str.contains(term, na=False) |
-                    df_filtered['num_contenedor'].astype(str).str.lower().str.contains(term, na=False) |
-                    df_filtered['num_bl'].astype(str).str.lower().str.contains(term, na=False) |
-                    df_filtered['fabricante'].astype(str).str.lower().str.contains(term, na=False) |
-                    df_filtered['producto'].astype(str).str.lower().str.contains(term, na=False)
+        # -------------------------------------------------------------
+        # BARRA DE BÚSQUEDA GLOBAL Y FILTROS COMBINADOS
+        # -------------------------------------------------------------
+        with st.expander("🔍 **Buscador y Filtros Avanzados**", expanded=True):
+            col_f1, col_f2, col_f3, col_f4 = st.columns([2, 1, 1, 1])
+            
+            with col_f1:
+                search_term = st.text_input(
+                    "🔎 Búsqueda Global", 
+                    placeholder="Escribe N° Invoice, Contenedor, BL, Fabricante o Producto...",
+                    key="search_global"
                 )
-                df_filtered = df_filtered[mask]
+            
+            with col_f2:
+                opciones_estatus = ["Todos"] + ESTATUS_LISTA
+                filtro_estatus = st.selectbox("Estatus del Embarque", opciones_estatus, index=0)
 
-            # 2. Filtro Estatus
-            if filtro_estatus != "Todos":
-                df_filtered = df_filtered[df_filtered['estatus'] == filtro_estatus]
+            with col_f3:
+                opciones_navieras = ["Todas"] + NAVIERAS
+                filtro_naviera = st.selectbox("Línea Naviera", opciones_navieras, index=0)
 
-            # 3. Filtro Naviera
-            if filtro_naviera != "Todas":
-                df_filtered = df_filtered[df_filtered['naviera'] == filtro_naviera]
+            with col_f4:
+                if role == "admin":
+                    opciones_flete = ["Todos", "⚠️ PENDIENTE FLETE", "🟢 Flete Pagado", "✅ No Aplica / Pagado"]
+                    filtro_flete = st.selectbox("Estado del Flete", opciones_flete, index=0)
+                else:
+                    filtro_flete = "Todos"
 
-            # 4. Filtro Estado Flete (solo Admin)
-            if role == "admin" and filtro_flete != "Todos":
-                df_filtered = df_filtered[df_filtered['pago_flete_status'] == filtro_flete]
+        # Aplicar la lógica de filtrado sobre el DataFrame
+        df_filtered = df.copy()
 
-            # Mostrar contador de resultados
-            st.caption(f"📊 Mostrando **{len(df_filtered)}** de **{len(df)}** embarque(s) registrado(s).")
+        # 1. Filtro Búsqueda Texto
+        if search_term:
+            term = search_term.lower().strip()
+            mask = (
+                df_filtered['num_invoice'].astype(str).str.lower().str.contains(term, na=False) |
+                df_filtered['num_contenedor'].astype(str).str.lower().str.contains(term, na=False) |
+                df_filtered['num_bl'].astype(str).str.lower().str.contains(term, na=False) |
+                df_filtered['fabricante'].astype(str).str.lower().str.contains(term, na=False) |
+                df_filtered['producto'].astype(str).str.lower().str.contains(term, na=False)
+            )
+            df_filtered = df_filtered[mask]
 
-            # Si el filtro no devuelve registros
-            if df_filtered.empty:
-                st.warning("⚠️ No se encontraron embarques que coincidan con los criterios de búsqueda.")
+        # 2. Filtro Estatus
+        if filtro_estatus != "Todos":
+            df_filtered = df_filtered[df_filtered['estatus'] == filtro_estatus]
+
+        # 3. Filtro Naviera
+        if filtro_naviera != "Todas":
+            df_filtered = df_filtered[df_filtered['naviera'] == filtro_naviera]
+
+        # 4. Filtro Estado Flete (solo Admin)
+        if role == "admin" and filtro_flete != "Todos":
+            df_filtered = df_filtered[df_filtered['pago_flete_status'] == filtro_flete]
+
+        # Mostrar contador de resultados
+        st.caption(f"📊 Mostrando **{len(df_filtered)}** de **{len(df)}** embarque(s) registrado(s).")
+
+        # Si el filtro no devuelve registros
+        if df_filtered.empty:
+            st.warning("⚠️ No se encontraron embarques que coincidan con los criterios de búsqueda.")
+        else:
+            def highlight_status(val):
+                val_clean = str(val).strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
+                if val_clean == 'entregado':
+                    return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'
+                elif 'pendiente pago' in val_clean:
+                    return 'background-color: #E2E8F0; color: #334155; font-weight: bold;'
+                elif 'produccion' in val_clean:
+                    return 'background-color: #E0F2FE; color: #0369A1; font-weight: bold;'
+                elif 'transito 1' in val_clean:
+                    return 'background-color: #E2E8F0; color: #475569; font-weight: bold;'
+                elif 'transito 2' in val_clean:
+                    return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'
+                elif 'transito 3' in val_clean:
+                    return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;'
+                elif 'aduana' in val_clean:
+                    return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
+                return ''
+
+            def highlight_flete(val):
+                if 'PENDIENTE' in str(val):
+                    return 'background-color: #FFE1A8; color: #854D0E; font-weight: bold;'
+                elif 'Pagado' in str(val):
+                    return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
+                return ''
+
+            if role == "admin":
+                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status']
+                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete']
             else:
-                def highlight_status(val):
-                    val_clean = str(val).strip().lower().replace('á', 'a').replace('é', 'e').replace('í', 'i').replace('ó', 'o').replace('ú', 'u')
-                    if val_clean == 'entregado':
-                        return 'background-color: #F8D7DA; color: #721C24; font-weight: bold;'
-                    elif 'pendiente pago' in val_clean:
-                        return 'background-color: #E2E8F0; color: #334155; font-weight: bold;'
-                    elif 'produccion' in val_clean:
-                        return 'background-color: #E0F2FE; color: #0369A1; font-weight: bold;'
-                    elif 'transito 1' in val_clean:
-                        return 'background-color: #E2E8F0; color: #475569; font-weight: bold;'
-                    elif 'transito 2' in val_clean:
-                        return 'background-color: #D4EDDA; color: #155724; font-weight: bold;'
-                    elif 'transito 3' in val_clean:
-                        return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;'
-                    elif 'aduana' in val_clean:
-                        return 'background-color: #FFF3CD; color: #856404; font-weight: bold;'
-                    return ''
+                cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
+                cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
 
-                def highlight_flete(val):
-                    if 'PENDIENTE' in str(val):
-                        return 'background-color: #FFE1A8; color: #854D0E; font-weight: bold;'
-                    elif 'Pagado' in str(val):
-                        return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
-                    return ''
+            df_display = df_filtered[cols_to_show].copy()
+            df_display.columns = cols_names
 
-                if role == "admin":
-                    cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus', 'pago_flete_status']
-                    cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus', 'Estado Flete']
-                else:
-                    cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus']
-                    cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus']
+            styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
+            if role == "admin":
+                styled_df = styled_df.map(highlight_flete, subset=['Estado Flete'])
 
-                df_display = df_filtered[cols_to_show].copy()
-                df_display.columns = cols_names
+            st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
+            
+            event = st.dataframe(
+                styled_df,
+                use_container_width=True,
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key="tabla_interactiva"
+            )
 
-                styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
-                if role == "admin":
-                    styled_df = styled_df.map(highlight_flete, subset=['Estado Flete'])
+            selected_rows = event.selection.get("rows", [])
+            if selected_rows:
+                row_idx = selected_rows[0]
+                selected_invoice = df_display.iloc[row_idx]['N° Invoice']
+                row_data = df[df['num_invoice'] == selected_invoice].iloc[0]
 
-                st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
-                
-                event = st.dataframe(
-                    styled_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    on_select="rerun",
-                    selection_mode="single-row",
-                    key="tabla_interactiva"
-                )
-
-                selected_rows = event.selection.get("rows", [])
-                if selected_rows:
-                    row_idx = selected_rows[0]
-                    selected_invoice = df_display.iloc[row_idx]['N° Invoice']
-                    row_data = df[df['num_invoice'] == selected_invoice].iloc[0]
-
-                    st.markdown("---")
-                    st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
+                st.markdown("---")
+                st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
 # --- AHORA LLAMAS A LAS DOS FUNCIONES AQUÍ ---
                     render_timeline(row_data['estatus'])
