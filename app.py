@@ -807,7 +807,7 @@ if menu == "📋 Control de Embarques":
    # =========================================================================
     # --- VISTA EXCLUSIVA COMPRAS: MÓDULO DE PAGOS INTERNACIONALES ---
     # =========================================================================
-    elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
+        elif menu == "💳 Módulo de Pagos Internacionales" and role == "admin":
         st.title("💳 Registro y Control de Pagos Internacionales")
         st.caption("Módulo exclusivo para Compras: Administra, modifica y elimina transferencias realizadas")
 
