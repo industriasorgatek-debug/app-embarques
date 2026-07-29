@@ -21,10 +21,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE CARPETAS Y BASE DE DATOS
 # -------------------------------------------------------------
-BASBASE_DIR = os.path.dirname(os.path.abspath(__file__))E_DIR = os.getcwd()
-DOCS_DIR = os.path.join(BASE_DIR, 'documentos')
-PAYMENTS_DIR = os.path.join(BASE_DIR, 'comprobantes_pagos')
-DB_PATH = os.path.join(BASE_DIR, 'embarques.db')
+    BASBASE_DIR = os.path.dirname(os.path.abspath(__file__))E_DIR = os.getcwd()
+    DOCS_DIR = os.path.join(BASE_DIR, 'documentos')
+    PAYMENTS_DIR = os.path.join(BASE_DIR, 'comprobantes_pagos')
+    DB_PATH = os.path.join(BASE_DIR, 'embarques.db')
 
 for folder in [DOCS_DIR, PAYMENTS_DIR]:
     if not os.path.exists(folder):
