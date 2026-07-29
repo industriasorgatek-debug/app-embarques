@@ -36,8 +36,9 @@ supabase = init_supabase()
 def get_maintenance_mode():
     try:
         res = supabase.table("app_config").select("value").eq("key", "modo_mantenimiento").execute()
-        if res.data:
-            return res.data[0]["value"] == "true"
+        if res.data and len(res.data) > 0:
+            val = str(res.data[0].get("value", "")).lower().strip()
+            return val in ["true", "1", "yes", "si"]
     except Exception:
         pass
     return False
@@ -47,7 +48,7 @@ def set_maintenance_mode(is_active: bool):
         val_str = "true" if is_active else "false"
         supabase.table("app_config").upsert({"key": "modo_mantenimiento", "value": val_str}).execute()
     except Exception as e:
-        st.error(f"Error actualizando Modo Mantenimiento: {e}")
+        st.error(f"Error actualizando Modo Mantenimiento en Supabase: {e}")
 
 # PINs de Acceso
 PINS = {
@@ -92,6 +93,41 @@ TIPOS_DOCS_COMPRAS = [
     "Fotos de Descarga",
     "Otro Documento"
 ]
+
+# Inicializar Variables de Sesión
+if "authenticated" not in st.session_state: st.session_state.authenticated = False
+if "user_role" not in st.session_state: st.session_state.user_role = None
+if "user_dept" not in st.session_state: st.session_state.user_dept = None
+if "editing_invoice" not in st.session_state: st.session_state.editing_invoice = None
+
+# COMPROBAR MODO MANTENIMIENTO GLOBAL
+modo_mantenimiento_activo = get_maintenance_mode()
+
+# =============================================================
+# 🔒 PANTALLA DE BLOQUEO DE MANTENIMIENTO (INFRANQUEABLE)
+# =============================================================
+if modo_mantenimiento_activo and st.session_state.user_role != "admin":
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #EAB308;'>🛠️ SISTEMA EN MANTENIMIENTO</h1>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center; color: gray;'>Plataforma en actualización programada por el Departamento de Compras.</h3>", unsafe_allow_html=True)
+    
+    st.warning("ℹ️ **Acceso Pausado:** Para garantizar la integridad de los datos, el acceso para Almacén y Administración ha sido suspendido temporalmente. Por favor reintente más tarde.")
+    
+    # Opción de desbloqueo exclusivo para Compras durante Mantenimiento
+    with st.expander("🔑 Acceso Administrador (Solo Compras)"):
+        with st.form("form_maint_login"):
+            admin_pin = st.text_input("PIN de Compras", type="password", max_chars=4)
+            submit_admin_maint = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
+            if submit_admin_maint:
+                if admin_pin == "1212":
+                    st.session_state.authenticated = True
+                    st.session_state.user_role = "admin"
+                    st.session_state.user_dept = "Compras"
+                    st.rerun()
+                else:
+                    st.error("❌ Solo el Departamento de Compras puede ingresar durante el mantenimiento.")
+    
+    st.stop() # DETIENE LA EJECUCIÓN COMPLETA. NADIE PUEDE VER NI EJECUTAR NADA MÁS.
 
 # -------------------------------------------------------------
 # FUNCIONES DE GESTIÓN DE ARCHIVOS EN SUPABASE STORAGE
@@ -354,24 +390,10 @@ def generar_pdf_embarque(row_data, df_pagos):
     buffer.seek(0)
     return buffer
 
-# Variables de Sesión
-if "authenticated" not in st.session_state: st.session_state.authenticated = False
-if "user_role" not in st.session_state: st.session_state.user_role = None
-if "user_dept" not in st.session_state: st.session_state.user_dept = None
-if "editing_invoice" not in st.session_state: st.session_state.editing_invoice = None
-
-# COMPROBAR MODO MANTENIMIENTO GLOBAL
-modo_mantenimiento_activo = get_maintenance_mode()
-
-# --- LOGIN ---
+# --- LOGIN NORMAL ---
 if not st.session_state.authenticated:
     st.markdown("<h1 style='text-align: center;'>🚢 Sistema de Control de Embarques</h1>", unsafe_allow_html=True)
-    
-    if modo_mantenimiento_activo:
-        st.warning("🛠️ **SISTEMA EN MANTENIMIENTO PROGRAMADO**")
-        st.info("El Departamento de Compras está realizando mantenimientos en la plataforma. El acceso para Almacén y Administración se reanudará en breve.")
-    else:
-        st.markdown("<h4 style='text-align: center; color: gray;'>Ingrese su PIN de acceso departamental</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align: center; color: gray;'>Ingrese su PIN de acceso departamental</h4>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
@@ -380,28 +402,12 @@ if not st.session_state.authenticated:
             submit_login = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
             if submit_login:
                 if pin_input in PINS:
-                    user_role = PINS[pin_input]["role"]
-                    user_dept = PINS[pin_input]["dept"]
-                    
-                    # SI EL MODO MANTENIMIENTO ESTÁ ACTIVO, BLOQUEAR A ALMACEN Y ADMON
-                    if modo_mantenimiento_activo and user_role != "admin":
-                        st.error("🔒 **Acceso Denegado:** El sistema se encuentra temporalmente en Mantenimiento. Por favor reintente más tarde.")
-                    else:
-                        st.session_state.authenticated = True
-                        st.session_state.user_role = user_role
-                        st.session_state.user_dept = user_dept
-                        st.rerun()
+                    st.session_state.authenticated = True
+                    st.session_state.user_role = PINS[pin_input]["role"]
+                    st.session_state.user_dept = PINS[pin_input]["dept"]
+                    st.rerun()
                 else:
                     st.error("❌ PIN incorrecto.")
-    st.stop()
-
-# --- CONTROL DE SESIÓN ACTIVA SI SE ACTIVA EL MANTENIMIENTO ---
-if modo_mantenimiento_activo and st.session_state.user_role != "admin":
-    st.session_state.authenticated = False
-    st.session_state.user_role = None
-    st.session_state.user_dept = None
-    st.warning("🛠️ **SISTEMA EN MANTENIMIENTO**")
-    st.info("El Departamento de Compras ha iniciado labores de mantenimiento. Su sesión ha sido pausada.")
     st.stop()
 
 # --- NAVEGACIÓN Y MENÚ ---
@@ -450,7 +456,7 @@ if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
 
 # BANNER DE ADVERTENCIA PARA COMPRAS SI MANTENIMIENTO ESTÁ ACTIVO
 if role == "admin" and modo_mantenimiento_activo:
-    st.warning("🚨 **MODO MANTENIMIENTO ACTIVADO:** Almacén y Administración tienen el acceso bloqueado temporalmente hasta que desactives el interruptor en el menú lateral.")
+    st.warning("🚨 **MODO MANTENIMIENTO ACTIVADO GLOBALMENTE:** Almacén y Administración tienen el acceso bloqueado hasta que desactives el interruptor en el menú lateral.")
 
 # --- VISTA 1: CONTROL DE EMBARQUES ---
 if menu == "📋 Control de Embarques":
