@@ -114,7 +114,7 @@ if modo_mantenimiento_activo and st.session_state.user_role != "admin":
     st.warning("ℹ️ **Acceso Pausado:** Por favor reintente más tarde.")
     
     # Opción de desbloqueo exclusivo para Compras durante Mantenimiento
-    with st.expander("🔑 Acceso Administrador (Solo Compras)"):
+    with st.expander("🔑 Acceso SOLO Administrador"):
         with st.form("form_maint_login"):
             admin_pin = st.text_input("PIN de Compras", type="password", max_chars=4)
             submit_admin_maint = st.form_submit_button("Ingresar al Sistema", use_container_width=True)
