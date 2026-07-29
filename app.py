@@ -75,6 +75,7 @@ BANCOS_LISTA = [
     "BANESCO USA",
     "SISTEMA SIMKIN",
     "CONVENIO RMB",
+    "CIERRE HISTÓRICO / SINC. DEUDA",
     "OTRO USD"
 ]
 
@@ -127,31 +128,44 @@ if modo_mantenimiento_activo and st.session_state.user_role != "admin":
                 else:
                     st.error("❌ Solo el Departamento de Compras puede ingresar durante el mantenimiento.")
     
-    st.stop() # DETIENE LA EJECUCIÓN COMPLETA. NADIE PUEDE VER NI EJECUTAR NADA MÁS.
+    st.stop() # DETIENE LA EJECUCIÓN COMPLETA.
 
 # -------------------------------------------------------------
-# FUNCIONES DE GESTIÓN DE ARCHIVOS EN SUPABASE STORAGE
+# FUNCIONES AUXILIARES Y GESTIÓN DE ARCHIVOS
 # -------------------------------------------------------------
+def clean_url(val):
+    if pd.isna(val) or str(val).strip().lower() in ['', 'none', 'nan', 'nat']:
+        return None
+    return str(val).strip()
+
 def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
     if file_obj is None:
         return None
     try:
-        ext = file_obj.name.split('.')[-1]
         safe_invoice = "".join(c for c in num_invoice if c.isalnum() or c in ('-', '_'))
         clean_filename = "".join(c for c in file_obj.name if c.isalnum() or c in ('.', '_', '-'))
-        storage_path = f"{prefix}_{safe_invoice}_{clean_filename}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        storage_path = f"{prefix}_{safe_invoice}_{timestamp}_{clean_filename}"
         
         file_bytes = file_obj.getvalue()
         
         supabase.storage.from_(bucket).upload(
             path=storage_path, 
             file=file_bytes, 
-            file_options={"upsert": "true", "content-type": file_obj.type or "application/octet-stream"}
+            file_options={"upsert": "true", "x-upsert": "true", "content-type": file_obj.type or "application/octet-stream"}
         )
         return supabase.storage.from_(bucket).get_public_url(storage_path)
     except Exception as e:
-        st.error(f"⚠️ Error al subir archivo a la nube: {e}")
-        return None
+        try:
+            supabase.storage.from_(bucket).update(
+                path=storage_path,
+                file=file_bytes,
+                file_options={"upsert": "true", "content-type": file_obj.type or "application/octet-stream"}
+            )
+            return supabase.storage.from_(bucket).get_public_url(storage_path)
+        except Exception as e2:
+            st.error(f"⚠️ Error al subir archivo a la nube: {e2}")
+            return None
 
 def safe_parse_date(val):
     if pd.isna(val) or str(val).strip() in ['', 'nan', 'NaT', 'None']:
@@ -174,11 +188,12 @@ def generar_zip_expediente(num_invoice, row_data):
             ('Bill_of_Lading', row_data.get('path_bl'))
         ]
         for label, url in core_docs:
-            if url and str(url).startswith('http'):
+            url_clean = clean_url(url)
+            if url_clean and url_clean.startswith('http'):
                 try:
-                    r = requests.get(url, timeout=10)
+                    r = requests.get(url_clean, timeout=10)
                     if r.status_code == 200:
-                        fname = url.split('/')[-1]
+                        fname = url_clean.split('/')[-1]
                         zip_file.writestr(f"Principales/{label}_{fname}", r.content)
                 except Exception:
                     pass
@@ -187,10 +202,10 @@ def generar_zip_expediente(num_invoice, row_data):
             res_anx = supabase.table("documentos_embarque").select("*").eq("num_invoice", num_invoice).execute()
             if res_anx.data:
                 for doc in res_anx.data:
-                    d_url = doc.get("path_archivo")
+                    d_url = clean_url(doc.get("path_archivo"))
                     d_tipo = str(doc.get("tipo_documento", "Anexo")).replace(' ', '_')
                     d_nombre = doc.get("nombre_archivo", "archivo")
-                    if d_url and str(d_url).startswith('http'):
+                    if d_url and d_url.startswith('http'):
                         try:
                             r = requests.get(d_url, timeout=10)
                             if r.status_code == 200:
@@ -330,7 +345,7 @@ def generar_pdf_embarque(row_data, df_pagos):
     monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
     df_fabrica = df_pagos[df_pagos['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos.empty else pd.DataFrame()
     monto_abonado_fabrica = df_fabrica['monto'].sum() if not df_fabrica.empty else 0.0
-    saldo_pendiente_fabrica = monto_factura - monto_abonado_fabrica
+    saldo_pendiente_fabrica = max(0.0, monto_factura - monto_abonado_fabrica)
 
     df_flete = df_pagos[df_pagos['tipo_pago'] == 'Pago a Freight Forwarder'] if not df_pagos.empty else pd.DataFrame()
     monto_flete_pagado = df_flete['monto'].sum() if not df_flete.empty else 0.0
@@ -623,13 +638,13 @@ if menu == "📋 Control de Embarques":
                 st.divider()
 
                 # =============================================================
-                # 1. ROL ALMACÉN (ACCESO DOCUMENTAL Y OPERATIVO RESTRINGIDO)
+                # 1. ROL ALMACÉN
                 # =============================================================
                 if role == "almacen":
                     st.subheader("📦 Módulo de Gestión de Almacén")
                     
-                    p_pack = row_data.get('path_packing')
-                    if p_pack and str(p_pack).startswith('http'):
+                    p_pack = clean_url(row_data.get('path_packing'))
+                    if p_pack and p_pack.startswith('http'):
                         st.link_button(f"⬇️ Ver / Descargar Packing List ({selected_invoice})", p_pack, type="primary", use_container_width=True)
                     else:
                         st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
@@ -678,11 +693,12 @@ if menu == "📋 Control de Embarques":
                             c_f1.write(f"📄 {f_row['nombre_archivo']}")
                             c_f2.caption(f"📅 {f_row['fecha_subida']}")
                             with c_f3:
-                                if f_row['path_archivo']:
-                                    st.link_button("⬇️ Ver Foto", f_row['path_archivo'], use_container_width=True)
+                                path_foto = clean_url(f_row['path_archivo'])
+                                if path_foto:
+                                    st.link_button("⬇️ Ver Foto", path_foto, use_container_width=True)
 
                 # =============================================================
-                # 2. ROL ADMINISTRACIÓN (DOCUMENTOS PRINCIPALES)
+                # 2. ROL ADMINISTRACIÓN
                 # =============================================================
                 elif role == "admon":
                     st.subheader("💼 Expediente Digital del Embarque")
@@ -695,17 +711,17 @@ if menu == "📋 Control de Embarques":
                     col_d1, col_d2 = st.columns(2)
                     for idx, (label, url) in enumerate(docs_principales):
                         col_target = col_d1 if idx % 2 == 0 else col_d2
+                        url_clean = clean_url(url)
                         with col_target:
-                            if url and str(url).startswith('http'):
-                                st.link_button(f"⬇️ Ver {label}", url, use_container_width=True)
+                            if url_clean and url_clean.startswith('http'):
+                                st.link_button(f"⬇️ Ver {label}", url_clean, use_container_width=True)
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
                 # =============================================================
-                # 3. ROL COMPRAS (ADMINISTRADOR COMPLETO)
+                # 3. ROL COMPRAS (ADMINISTRADOR)
                 # =============================================================
                 elif role == "admin":
-                    # Alertas de Flete
                     es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
                     tiene_pago_ff = selected_invoice in invoices_con_pago_ff
                     if not es_omito_flete and not tiene_pago_ff:
@@ -723,9 +739,10 @@ if menu == "📋 Control de Embarques":
                     col_d1, col_d2 = st.columns(2)
                     for idx, (label, url) in enumerate(docs_principales):
                         col_target = col_d1 if idx % 2 == 0 else col_d2
+                        url_clean = clean_url(url)
                         with col_target:
-                            if url and str(url).startswith('http'):
-                                st.link_button(f"⬇️ Ver {label}", url, use_container_width=True)
+                            if url_clean and url_clean.startswith('http'):
+                                st.link_button(f"⬇️ Ver {label}", url_clean, use_container_width=True)
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
@@ -774,9 +791,10 @@ if menu == "📋 Control de Embarques":
                                 c_doc2.write(f"📄 {doc_row['nombre_archivo']}")
                                 c_doc3.caption(f"📅 {doc_row['fecha_subida']} ({doc_row['subido_por']})")
                                 
+                                path_anx = clean_url(doc_row['path_archivo'])
                                 with c_doc4:
-                                    if doc_row['path_archivo']:
-                                        st.link_button("⬇️ Abrir", doc_row['path_archivo'], use_container_width=True)
+                                    if path_anx:
+                                        st.link_button("⬇️ Abrir", path_anx, use_container_width=True)
                                     
                                     if st.button("🗑️", key=f"del_extra_{doc_row['id']}", help="Eliminar este archivo"):
                                         supabase.table("documentos_embarque").delete().eq("id", doc_row['id']).execute()
@@ -808,7 +826,7 @@ if menu == "📋 Control de Embarques":
                     
                     monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
                     monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
-                    saldo_pendiente = monto_factura - monto_total_pagado_fabrica
+                    saldo_pendiente = max(0.0, monto_factura - monto_total_pagado_fabrica)
 
                     m1, m2 = st.columns(2)
                     m1.metric("Monto Total Factura (Fábrica)", f"${monto_factura:,.2f} USD")
@@ -834,8 +852,9 @@ if menu == "📋 Control de Embarques":
                             c_p3.write(f"**Monto:** ${p_row['monto']:,.2f} USD")
                             c_p4.write(f"**Ref:** {p_row['referencia']} ({p_row['fecha_pago']})")
                             
-                            if p_row.get('path_comprobante'):
-                                st.link_button(f"📄 Ver Comprobante #{p_row['referencia']}", p_row['path_comprobante'], use_container_width=True)
+                            path_comp = clean_url(p_row.get('path_comprobante'))
+                            if path_comp:
+                                st.link_button(f"📄 Ver Comprobante #{p_row['referencia']}", path_comp, use_container_width=True)
                             st.divider()
 
                     st.markdown("---")
@@ -891,10 +910,10 @@ if menu == "📋 Control de Embarques":
                 submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
                 
             if submit_q_edit:
-                p_pack = upload_file_to_supabase(q_file_pack, st.session_state.editing_invoice, "PACK") or row_data.get('path_packing')
-                p_inv = upload_file_to_supabase(q_file_inv, st.session_state.editing_invoice, "INV") or row_data.get('path_invoice')
-                p_fle = upload_file_to_supabase(q_file_fle, st.session_state.editing_invoice, "FLE") or row_data.get('path_flete')
-                p_bl = upload_file_to_supabase(q_file_bl, st.session_state.editing_invoice, "BL") or row_data.get('path_bl')
+                p_pack = upload_file_to_supabase(q_file_pack, st.session_state.editing_invoice, "PACK") or clean_url(row_data.get('path_packing'))
+                p_inv = upload_file_to_supabase(q_file_inv, st.session_state.editing_invoice, "INV") or clean_url(row_data.get('path_invoice'))
+                p_fle = upload_file_to_supabase(q_file_fle, st.session_state.editing_invoice, "FLE") or clean_url(row_data.get('path_flete'))
+                p_bl = upload_file_to_supabase(q_file_bl, st.session_state.editing_invoice, "BL") or clean_url(row_data.get('path_bl'))
                 
                 supabase.table("embarques").update({
                     "origen": origen_e, "destino": destino_e, "fabricante": fabricante_e,
@@ -912,7 +931,7 @@ if menu == "📋 Control de Embarques":
 # --- MENÚ 2: PAGOS INTERNACIONALES ---
 elif "Pagos Internacionales" in menu:
     st.title("💳 Registro y Control de Pagos Internacionales")
-    st.caption("Módulo exclusivo para Compras: Administra, modifica y elimina transferencias realizadas")
+    st.caption("Módulo exclusivo para Compras: Administra, modifica, elimina transferencias o salda deudas históricas")
 
     res_emb = supabase.table("embarques").select("num_invoice, fabricante, num_contenedor, monto_factura, estatus").execute()
     df_emb = pd.DataFrame(res_emb.data) if res_emb.data else pd.DataFrame()
@@ -921,8 +940,13 @@ elif "Pagos Internacionales" in menu:
         st.warning("⚠️ Primero debe registrar al menos un embarque para asignarle pagos.")
     else:
         invoices_map = {row['num_invoice']: f"{row['num_invoice']} - {row['fabricante']} (Contenedor: {row['num_contenedor']})" for _, row in df_emb.iterrows()}
-        tab_nuevo, tab_editar = st.tabs(["➕ Registrar Nuevo Pago", "✏️ Editar / Eliminar Pago Existente"])
+        tab_nuevo, tab_historico, tab_editar = st.tabs([
+            "➕ Registrar Nuevo Pago", 
+            "✅ Saldar Deuda Histórica", 
+            "✏️ Editar / Eliminar Pago Existente"
+        ])
 
+        # TAB 1: REGISTRAR NUEVO PAGO NORMAL
         with tab_nuevo:
             st.subheader("➕ Registrar Nuevo Abono / Pago")
             with st.form("form_registrar_pago", clear_on_submit=True):
@@ -964,6 +988,51 @@ elif "Pagos Internacionales" in menu:
                         st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado exitosamente.")
                         st.rerun()
 
+        # TAB 2: MARCAR COMO PAGADO (DEUDA HISTÓRICA)
+        with tab_historico:
+            st.subheader("⚡ Saldar Deuda Histórica / Marcar Factura como Pagada")
+            st.caption("Utiliza esta opción para embarques viejos donde no se dispone de comprobantes bancarios, de modo que la factura no figure con deuda.")
+            
+            selected_inv_hist = st.selectbox("Seleccione Embarque / Invoice a Saldar *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x], key="hist_pago_inv")
+            
+            row_hist = df_emb[df_emb['num_invoice'] == selected_inv_hist].iloc[0]
+            monto_fact = float(row_hist['monto_factura']) if pd.notna(row_hist.get('monto_factura')) else 0.0
+            
+            res_p_hist = supabase.table("pagos_embarques").select("monto").eq("num_invoice", selected_inv_hist).eq("tipo_pago", "Pago a Fábrica").execute()
+            df_p_hist = pd.DataFrame(res_p_hist.data) if res_p_hist.data else pd.DataFrame()
+            monto_abonado_hist = df_p_hist['monto'].sum() if not df_p_hist.empty else 0.0
+            saldo_pend_hist = max(0.0, monto_fact - monto_abonado_hist)
+            
+            col_h1, col_h2, col_h3 = st.columns(3)
+            col_h1.metric("Monto Total Factura", f"${monto_fact:,.2f} USD")
+            col_h2.metric("Abonos Registrados", f"${monto_abonado_hist:,.2f} USD")
+            col_h3.metric("Saldo Pendiente Actual", f"${saldo_pend_hist:,.2f} USD")
+            
+            if saldo_pend_hist <= 0:
+                st.success("🟢 **Factura Saldada:** Este embarque ya no posee saldo pendiente ($0.00 USD).")
+            else:
+                st.info(f"ℹ️ Se registrará un ajuste de **${saldo_pend_hist:,.2f} USD** para dejar la cuenta en $0.00 USD.")
+                
+                if st.button("✅ Marcar Factura como Totalmente Pagada (Saldar Deuda)", type="primary", use_container_width=True):
+                    supabase.table("pagos_embarques").insert({
+                        "num_invoice": selected_inv_hist,
+                        "tipo_pago": "Pago a Fábrica",
+                        "banco": "CIERRE HISTÓRICO / SINC. DEUDA",
+                        "monto": saldo_pend_hist,
+                        "fecha_pago": str(date.today()),
+                        "referencia": "PAGO_HISTORICO_OK",
+                        "path_comprobante": None
+                    }).execute()
+                    
+                    res_c = supabase.table("embarques").select("estatus").eq("num_invoice", selected_inv_hist).execute()
+                    if res_c.data and res_c.data[0]['estatus'] == "Pendiente Pago":
+                        supabase.table("embarques").update({"estatus": "En Producción"}).eq("num_invoice", selected_inv_hist).execute()
+                        st.info("ℹ️ **Estatus Actualizado:** El embarque cambió automáticamente a **'En Producción'**.")
+
+                    st.success(f"🎉 ¡Factura {selected_inv_hist} marcada como totalmente pagada con éxito!")
+                    st.rerun()
+
+        # TAB 3: EDITAR / ELIMINAR PAGOS EXISTENTES
         with tab_editar:
             st.subheader("🛠️ Modificar o Eliminar un Pago Registrado")
             res_all_p = supabase.table("pagos_embarques").select("*").order("id", desc=True).execute()
@@ -996,7 +1065,7 @@ elif "Pagos Internacionales" in menu:
                     if not num_ref_edit or monto_pago_edit <= 0:
                         st.error("❌ El monto debe ser mayor a 0 y la referencia no puede estar vacía.")
                     else:
-                        new_path = upload_file_to_supabase(file_comp_edit, f"{pago_row['num_invoice']}_{num_ref_edit}", "COMP", bucket="comprobantes") or pago_row.get('path_comprobante')
+                        new_path = upload_file_to_supabase(file_comp_edit, f"{pago_row['num_invoice']}_{num_ref_edit}", "COMP", bucket="comprobantes") or clean_url(pago_row.get('path_comprobante'))
                         supabase.table("pagos_embarques").update({
                             "tipo_pago": tipo_pago_edit, "banco": banco_pago_edit, "monto": monto_pago_edit,
                             "fecha_pago": str(fecha_pago_edit), "referencia": num_ref_edit, "path_comprobante": new_path
@@ -1201,10 +1270,10 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
 
             submit_edit = st.form_submit_button("💾 Guardar Cambios en Supabase")
             if submit_edit:
-                p_pack = upload_file_to_supabase(new_file_packing, selected_invoice, "PACK") or row.get('path_packing')
-                p_inv = upload_file_to_supabase(new_file_invoice, selected_invoice, "INV") or row.get('path_invoice')
-                p_fle = upload_file_to_supabase(new_file_flete, selected_invoice, "FLE") or row.get('path_flete')
-                p_bl = upload_file_to_supabase(new_file_bl, selected_invoice, "BL") or row.get('path_bl')
+                p_pack = upload_file_to_supabase(new_file_packing, selected_invoice, "PACK") or clean_url(row.get('path_packing'))
+                p_inv = upload_file_to_supabase(new_file_invoice, selected_invoice, "INV") or clean_url(row.get('path_invoice'))
+                p_fle = upload_file_to_supabase(new_file_flete, selected_invoice, "FLE") or clean_url(row.get('path_flete'))
+                p_bl = upload_file_to_supabase(new_file_bl, selected_invoice, "BL") or clean_url(row.get('path_bl'))
                 
                 supabase.table("embarques").update({
                     "origen": origen_edit, "destino": destino_edit, "fabricante": fabricante_edit,
@@ -1215,4 +1284,5 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                     "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit
                 }).eq("num_invoice", selected_invoice).execute()
                 
-                st.success(f"✅ Embarque Invoice {selected_invoice} actualizado en Supabase.")
+                st.success(f"✅ Embarque Invoice {selected_invoice} actualizado correctamente en Supabase.")
+                st.rerun()
