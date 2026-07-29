@@ -21,7 +21,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE CARPETAS Y BASE DE DATOS
 # -------------------------------------------------------------
-BASE_DIR = os.getcwd()
+BASBASE_DIR = os.path.dirname(os.path.abspath(__file__))E_DIR = os.getcwd()
 DOCS_DIR = os.path.join(BASE_DIR, 'documentos')
 PAYMENTS_DIR = os.path.join(BASE_DIR, 'comprobantes_pagos')
 DB_PATH = os.path.join(BASE_DIR, 'embarques.db')
