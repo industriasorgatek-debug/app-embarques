@@ -1,11 +1,11 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
-import os
 import io
 import urllib.parse
 import zipfile
-from datetime import date
+import requests
+from datetime import date, datetime
+from supabase import create_client, Client
 
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE PÁGINA
@@ -19,16 +19,16 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # -------------------------------------------------------------
-# CONFIGURACIÓN DE CARPETAS Y BASE DE DATOS
+# CONEXIÓN A SUPABASE (BASE DE DATOS Y STORAGE EN LA NUBE)
 # -------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DOCS_DIR = os.path.join(BASE_DIR, 'documentos')
-PAYMENTS_DIR = os.path.join(BASE_DIR, 'comprobantes_pagos')
-DB_PATH = os.path.join(BASE_DIR, 'embarques.db')
+SUPABASE_URL = "https://drletxlyrnraprqierrr.supabase.co"
+SUPABASE_KEY = "sb_publishable_4ZcWovp88QQvCRgMBNFqWQ_UbKLOH2v"
 
-for folder in [DOCS_DIR, PAYMENTS_DIR]:
-    if not os.path.exists(folder):
-        os.makedirs(folder)
+@st.cache_resource
+def init_supabase() -> Client:
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase = init_supabase()
 
 # PINs de Acceso
 PINS = {
@@ -74,95 +74,31 @@ TIPOS_DOCS_COMPRAS = [
     "Otro Documento"
 ]
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    # Tabla Principal de Embarques
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS embarques (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            origen TEXT, destino TEXT, fabricante TEXT,
-            num_invoice TEXT UNIQUE, agente_carga TEXT, agente_aduanas TEXT,
-            consignatario TEXT, producto TEXT, num_bl TEXT, naviera TEXT,
-            num_contenedor TEXT, eta DATE, estatus TEXT,
-            path_packing TEXT, path_invoice TEXT, path_flete TEXT, path_bl TEXT,
-            monto_factura REAL DEFAULT 0.0
-        )
-    ''')
-    
-    # Tabla Relacional de Pagos
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS pagos_embarques (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            num_invoice TEXT,
-            tipo_pago TEXT,
-            banco TEXT,
-            monto REAL,
-            fecha_pago DATE,
-            referencia TEXT,
-            path_comprobante TEXT,
-            FOREIGN KEY (num_invoice) REFERENCES embarques(num_invoice)
-        )
-    ''')
-
-    # Tabla Relacional de Documentos Dinámicos (Expediente Anexo)
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS documentos_embarque (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            num_invoice TEXT,
-            tipo_documento TEXT,
-            nombre_archivo TEXT,
-            path_archivo TEXT,
-            fecha_subida DATE,
-            subido_por TEXT,
-            FOREIGN KEY (num_invoice) REFERENCES embarques(num_invoice)
-        )
-    ''')
-
-    c.execute("PRAGMA table_info(embarques)")
-    columns = [column[1] for column in c.fetchall()]
-    if 'naviera' not in columns:
-        c.execute("ALTER TABLE embarques ADD COLUMN naviera TEXT")
-    if 'monto_factura' not in columns:
-        c.execute("ALTER TABLE embarques ADD COLUMN monto_factura REAL DEFAULT 0.0")
-        
-    conn.commit()
-    conn.close()
-
-init_db()
-
-def save_file(file, num_invoice, doc_type, is_payment=False):
-    if file is None:
+# -------------------------------------------------------------
+# FUNCIONES DE GESTIÓN DE ARCHIVOS EN SUPABASE STORAGE
+# -------------------------------------------------------------
+def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
+    if file_obj is None:
         return None
-    ext = file.name.split('.')[-1]
-    safe_invoice = "".join(c for c in num_invoice if c.isalnum() or c in ('-', '_'))
-    
-    target_dir = PAYMENTS_DIR if is_payment else DOCS_DIR
-    filename = f"PAY_{safe_invoice}_{doc_type}.{ext}" if is_payment else f"INV_{safe_invoice}_{doc_type}.{ext}"
-    filepath = os.path.join(target_dir, filename)
-    
-    with open(filepath, "wb") as f:
-        f.write(file.getbuffer())
-    return filepath
-
-def save_extra_file(file, num_invoice, doc_type):
-    if file is None:
-        return None, None
-    safe_invoice = "".join(c for c in num_invoice if c.isalnum() or c in ('-', '_'))
-    safe_doc_type = "".join(c for c in doc_type if c.isalnum() or c in ('-', '_'))
-    filename = f"ANX_{safe_invoice}_{safe_doc_type}_{file.name}"
-    filepath = os.path.join(DOCS_DIR, filename)
-    with open(filepath, "wb") as f:
-        f.write(file.getbuffer())
-    return filepath, file.name
-
-def has_valid_file(path_val):
-    if pd.isna(path_val) or path_val is None:
-        return False
-    path_str = str(path_val).strip()
-    if path_str in ['', 'None', 'nan', 'NaT']:
-        return False
-    return os.path.exists(path_str)
+    try:
+        ext = file_obj.name.split('.')[-1]
+        safe_invoice = "".join(c for c in num_invoice if c.isalnum() or c in ('-', '_'))
+        clean_filename = "".join(c for c in file_obj.name if c.isalnum() or c in ('.', '_', '-'))
+        storage_path = f"{prefix}_{safe_invoice}_{clean_filename}"
+        
+        file_bytes = file_obj.getvalue()
+        
+        # Subir archivo al bucket de Supabase
+        supabase.storage.from_(bucket).upload(
+            path=storage_path, 
+            file=file_bytes, 
+            file_options={"upsert": "true", "content-type": file_obj.type or "application/octet-stream"}
+        )
+        # Obtener URL pública
+        return supabase.storage.from_(bucket).get_public_url(storage_path)
+    except Exception as e:
+        st.error(f"⚠️ Error al subir archivo a la nube: {e}")
+        return None
 
 def safe_parse_date(val):
     if pd.isna(val) or str(val).strip() in ['', 'nan', 'NaT', 'None']:
@@ -175,32 +111,48 @@ def safe_parse_date(val):
     except Exception:
         return date.today()
 
-def generar_zip_expediente(num_invoice, row_data, conn):
+def generar_zip_expediente(num_invoice, row_data):
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         core_docs = [
-            ('Packing_List', row_data['path_packing']),
-            ('Factura_Comercial', row_data['path_invoice']),
-            ('Factura_Flete', row_data['path_flete']),
-            ('Bill_of_Lading', row_data['path_bl'])
+            ('Packing_List', row_data.get('path_packing')),
+            ('Factura_Comercial', row_data.get('path_invoice')),
+            ('Factura_Flete', row_data.get('path_flete')),
+            ('Bill_of_Lading', row_data.get('path_bl'))
         ]
-        for label, path in core_docs:
-            if has_valid_file(path):
-                zip_file.write(path, arcname=f"Principales/{label}_{os.path.basename(path)}")
+        for label, url in core_docs:
+            if url and str(url).startswith('http'):
+                try:
+                    r = requests.get(url, timeout=10)
+                    if r.status_code == 200:
+                        fname = url.split('/')[-1]
+                        zip_file.writestr(f"Principales/{label}_{fname}", r.content)
+                except Exception:
+                    pass
         
-        c = conn.cursor()
-        c.execute("SELECT tipo_documento, path_archivo, nombre_archivo FROM documentos_embarque WHERE num_invoice = ?", (num_invoice,))
-        extra_docs = c.fetchall()
-        for tipo, path, name in extra_docs:
-            if has_valid_file(path):
-                safe_tipo = "".join(c for c in tipo if c.isalnum() or c in ('_', '-')).replace(' ', '_')
-                zip_file.write(path, arcname=f"Anexos/{safe_tipo}/{name}")
-                
+        # Anexos desde Supabase
+        try:
+            res_anx = supabase.table("documentos_embarque").select("*").eq("num_invoice", num_invoice).execute()
+            if res_anx.data:
+                for doc in res_anx.data:
+                    d_url = doc.get("path_archivo")
+                    d_tipo = str(doc.get("tipo_documento", "Anexo")).replace(' ', '_')
+                    d_nombre = doc.get("nombre_archivo", "archivo")
+                    if d_url and str(d_url).startswith('http'):
+                        try:
+                            r = requests.get(d_url, timeout=10)
+                            if r.status_code == 200:
+                                zip_file.writestr(f"Anexos/{d_tipo}/{d_nombre}", r.content)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+            
     buffer.seek(0)
     return buffer
 
 # -------------------------------------------------------------
-# FUNCIONES DE TRACKING Y VISIBILIDAD LOGÍSTICA
+# TRACKING Y VISIBILIDAD LOGÍSTICA
 # -------------------------------------------------------------
 def get_tracking_info(naviera, num_contenedor, num_bl):
     cont = str(num_contenedor).strip().upper() if pd.notna(num_contenedor) else ""
@@ -290,10 +242,10 @@ def generar_pdf_embarque(row_data, df_pagos):
     ]
 
     data_logistica = [
-        [Paragraph("<b>Estatus Actual:</b>", body_style), str(row_data['estatus']), Paragraph("<b>Línea Naviera:</b>", body_style), str(row_data['naviera'])],
-        [Paragraph("<b>N° Contenedor:</b>", body_style), str(row_data['num_contenedor']), Paragraph("<b>N° BL:</b>", body_style), str(row_data['num_bl'])],
-        [Paragraph("<b>Origen:</b>", body_style), str(row_data['origen']), Paragraph("<b>Destino:</b>", body_style), str(row_data['destino'])],
-        [Paragraph("<b>ETA (Arribo):</b>", body_style), str(row_data['eta']), Paragraph("<b>Producto:</b>", body_style), str(row_data['producto'])]
+        [Paragraph("<b>Estatus Actual:</b>", body_style), str(row_data.get('estatus', '')), Paragraph("<b>Línea Naviera:</b>", body_style), str(row_data.get('naviera', ''))],
+        [Paragraph("<b>N° Contenedor:</b>", body_style), str(row_data.get('num_contenedor', '')), Paragraph("<b>N° BL:</b>", body_style), str(row_data.get('num_bl', ''))],
+        [Paragraph("<b>Origen:</b>", body_style), str(row_data.get('origen', '')), Paragraph("<b>Destino:</b>", body_style), str(row_data.get('destino', ''))],
+        [Paragraph("<b>ETA (Arribo):</b>", body_style), str(row_data.get('eta', '')), Paragraph("<b>Producto:</b>", body_style), str(row_data.get('producto', ''))]
     ]
 
     t1 = Table(data_logistica, colWidths=[110, 150, 110, 150])
@@ -307,10 +259,10 @@ def generar_pdf_embarque(row_data, df_pagos):
     elements.extend([t1, Spacer(1, 10), Paragraph("👥 Proveedor y Agentes Asignados", subtitle_style), Spacer(1, 4)])
 
     data_agentes = [
-        [Paragraph("<b>Fabricante / Proveedor:</b>", body_style), str(row_data['fabricante'])],
-        [Paragraph("<b>Consignatario:</b>", body_style), str(row_data['consignatario'])],
-        [Paragraph("<b>Agente de Carga (FF):</b>", body_style), str(row_data['agente_carga'])],
-        [Paragraph("<b>Agente de Aduanas:</b>", body_style), str(row_data['agente_aduanas'])]
+        [Paragraph("<b>Fabricante / Proveedor:</b>", body_style), str(row_data.get('fabricante', ''))],
+        [Paragraph("<b>Consignatario:</b>", body_style), str(row_data.get('consignatario', ''))],
+        [Paragraph("<b>Agente de Carga (FF):</b>", body_style), str(row_data.get('agente_carga', ''))],
+        [Paragraph("<b>Agente de Aduanas:</b>", body_style), str(row_data.get('agente_aduanas', ''))]
     ]
 
     t2 = Table(data_agentes, colWidths=[150, 370])
@@ -323,7 +275,7 @@ def generar_pdf_embarque(row_data, df_pagos):
     ]))
     elements.extend([t2, Spacer(1, 10), Paragraph("💰 Resumen Financiero (Fábrica y Flete)", subtitle_style), Spacer(1, 4)])
 
-    monto_factura = float(row_data['monto_factura']) if pd.notna(row_data['monto_factura']) else 0.0
+    monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
     df_fabrica = df_pagos[df_pagos['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos.empty else pd.DataFrame()
     monto_abonado_fabrica = df_fabrica['monto'].sum() if not df_fabrica.empty else 0.0
     saldo_pendiente_fabrica = monto_factura - monto_abonado_fabrica
@@ -331,7 +283,7 @@ def generar_pdf_embarque(row_data, df_pagos):
     df_flete = df_pagos[df_pagos['tipo_pago'] == 'Pago a Freight Forwarder'] if not df_pagos.empty else pd.DataFrame()
     monto_flete_pagado = df_flete['monto'].sum() if not df_flete.empty else 0.0
     
-    estatus_curr = str(row_data['estatus']).strip()
+    estatus_curr = str(row_data.get('estatus', '')).strip()
     if estatus_curr in ['Entregado', 'Pendiente Pago']:
         estado_flete_str = "No Aplica / Pagado"
     elif not df_flete.empty:
@@ -344,7 +296,7 @@ def generar_pdf_embarque(row_data, df_pagos):
          Paragraph("<b>Abonado:</b>", body_style), f"${monto_abonado_fabrica:,.2f}",
          Paragraph("<b>Saldo Pendiente:</b>", body_style), f"${saldo_pendiente_fabrica:,.2f}"],
         
-        [Paragraph("<b>FLETE — Agente:</b>", body_style), Paragraph(str(row_data['agente_carga'] or 'N/A'), body_style),
+        [Paragraph("<b>FLETE — Agente:</b>", body_style), Paragraph(str(row_data.get('agente_carga') or 'N/A'), body_style),
          Paragraph("<b>Estatus:</b>", body_style), estado_flete_str,
          Paragraph("<b>Total Pagado Flete:</b>", body_style), f"${monto_flete_pagado:,.2f}"]
     ]
@@ -439,24 +391,26 @@ if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
     st.session_state.editing_invoice = None
     st.rerun()
 
-conn = sqlite3.connect(DB_PATH)
-
 # --- VISTA 1: CONTROL DE EMBARQUES ---
 if menu == "📋 Control de Embarques":
     st.title("📋 Control General de Embarques")
-    st.caption("Visualización interactiva, búsqueda en tiempo real y gestión de archivos")
+    st.caption("Visualización interactiva en la nube, búsqueda en tiempo real y gestión de archivos")
     
-    df = pd.read_sql_query("SELECT * FROM embarques", conn)
-    df_pagos_all = pd.read_sql_query("SELECT num_invoice, tipo_pago FROM pagos_embarques", conn)
+    # Cargar datos desde Supabase
+    res_emb = supabase.table("embarques").select("*").execute()
+    df = pd.DataFrame(res_emb.data) if res_emb.data else pd.DataFrame()
+    
+    res_pag = supabase.table("pagos_embarques").select("num_invoice, tipo_pago").execute()
+    df_pagos_all = pd.DataFrame(res_pag.data) if res_pag.data else pd.DataFrame()
     
     if df.empty:
-        st.info("No hay embarques registrados aún.")
+        st.info("No hay embarques registrados aún en la base de datos de Supabase.")
     else:
         invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
 
         def check_pago_ff(row):
-            estatus = str(row['estatus']).strip()
-            inv = row['num_invoice']
+            estatus = str(row.get('estatus', '')).strip()
+            inv = row.get('num_invoice', '')
             if estatus in ['Entregado', 'Pendiente Pago']:
                 return '✅ No Aplica / Pagado'
             elif inv in invoices_con_pago_ff:
@@ -557,6 +511,49 @@ if menu == "📋 Control de Embarques":
                     if url_track: st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
                     else: st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
 
+                # =============================================================
+                # 📝 MÓDULO DE NOTAS / BITÁCORA (SOLO COMPRAS Y ALMACÉN)
+                # =============================================================
+                if role in ["admin", "almacen"]:
+                    st.markdown("---")
+                    st.subheader("📝 Bitácora de Notas y Comentarios")
+                    st.caption("Espacio exclusivo para Compras y Almacén para registrar observaciones de la carga.")
+
+                    with st.form(key=f"form_nota_{selected_invoice}", clear_on_submit=True):
+                        nuevo_comentario = st.text_area(
+                            "Agregar comentario / novedad corta:",
+                            placeholder="Ej: Contenedor recibido con empaque levemente dañado en paleta 3... / Documentos enviados a aduana.",
+                            max_chars=400,
+                            height=80
+                        )
+                        btn_guardar_nota = st.form_submit_button("💬 Guardar Nota", type="primary")
+
+                        if btn_guardar_nota:
+                            if not nuevo_comentario.strip():
+                                st.warning("⚠️ Escriba un comentario antes de guardar.")
+                            else:
+                                fecha_hora_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
+                                supabase.table("notas_embarque").insert({
+                                    "num_invoice": selected_invoice,
+                                    "usuario": st.session_state.user_dept,
+                                    "rol": role,
+                                    "comentario": nuevo_comentario.strip(),
+                                    "fecha_hora": fecha_hora_actual
+                                }).execute()
+                                st.success("✅ Comentario registrado exitosamente en la nube.")
+                                st.rerun()
+
+                    res_notas = supabase.table("notas_embarque").select("*").eq("num_invoice", selected_invoice).order("id", desc=True).execute()
+                    df_notas = pd.DataFrame(res_notas.data) if res_notas.data else pd.DataFrame()
+
+                    if not df_notas.empty:
+                        st.markdown("##### 📜 Historial de Observaciones:")
+                        for _, n_row in df_notas.iterrows():
+                            badge = "🛒 Compras" if n_row['rol'] == 'admin' else "📦 Almacén"
+                            st.info(f"**{badge} ({n_row['usuario']})** — `{n_row['fecha_hora']}`\n\n💬 {n_row['comentario']}")
+                    else:
+                        st.caption("ℹ️ No hay observaciones registradas para esta carga aún.")
+
                 st.divider()
 
                 # =============================================================
@@ -565,16 +562,9 @@ if menu == "📋 Control de Embarques":
                 if role == "almacen":
                     st.subheader("📦 Módulo de Gestión de Almacén")
                     
-                    if has_valid_file(row_data['path_packing']):
-                        with open(row_data['path_packing'], "rb") as f:
-                            st.download_button(
-                                label=f"⬇️ Descargar Packing List ({selected_invoice})",
-                                data=f,
-                                file_name=os.path.basename(row_data['path_packing']),
-                                mime="application/octet-stream",
-                                type="primary",
-                                key=f"main_pack_{selected_invoice}"
-                            )
+                    p_pack = row_data.get('path_packing')
+                    if p_pack and str(p_pack).startswith('http'):
+                        st.link_button(f"⬇️ Ver / Descargar Packing List ({selected_invoice})", p_pack, type="primary", use_container_width=True)
                     else:
                         st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
@@ -582,9 +572,7 @@ if menu == "📋 Control de Embarques":
                         st.markdown("---")
                         st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado' al recibirlo en almacén.")
                         if st.button("✅ Marcar como ENTREGADO", type="primary"):
-                            c = conn.cursor()
-                            c.execute("UPDATE embarques SET estatus = 'Entregado' WHERE num_invoice = ?", (selected_invoice,))
-                            conn.commit()
+                            supabase.table("embarques").update({"estatus": "Entregado"}).eq("num_invoice", selected_invoice).execute()
                             st.success("¡Estatus actualizado a 'Entregado' con éxito!")
                             st.rerun()
 
@@ -597,25 +585,26 @@ if menu == "📋 Control de Embarques":
                                 accept_multiple_files=True,
                                 key=f"upload_almacen_files_{selected_invoice}"
                             )
-                            sub_almacen = st.form_submit_button("📤 Subir Fotos de Descarga", type="primary")
+                            sub_almacen = st.form_submit_button("📤 Subir Fotos a la Nube", type="primary")
                             if sub_almacen and uploaded_descarga_files:
-                                c = conn.cursor()
                                 for f_up in uploaded_descarga_files:
-                                    f_path, f_name = save_extra_file(f_up, selected_invoice, "Fotos de Descarga")
-                                    c.execute('''
-                                        INSERT INTO documentos_embarque (num_invoice, tipo_documento, nombre_archivo, path_archivo, fecha_subida, subido_por)
-                                        VALUES (?, ?, ?, ?, ?, ?)
-                                    ''', (selected_invoice, "Fotos de Descarga", f_name, f_path, str(date.today()), "Almacén"))
-                                conn.commit()
-                                st.success("✅ Fotos/Archivos de descarga guardados con éxito.")
+                                    f_url = upload_file_to_supabase(f_up, selected_invoice, "FOTO", bucket="documentos")
+                                    supabase.table("documentos_embarque").insert({
+                                        "num_invoice": selected_invoice,
+                                        "tipo_documento": "Fotos de Descarga",
+                                        "nombre_archivo": f_up.name,
+                                        "path_archivo": f_url,
+                                        "fecha_subida": str(date.today()),
+                                        "subido_por": "Almacén"
+                                    }).execute()
+                                st.success("✅ Fotos guardadas en Supabase Storage exitosamente.")
                                 st.rerun()
                     else:
-                        st.info("🔒 **Carga de Fotos de Descarga Inactiva:** La opción para subir fotos se habilitará cuando el embarque sea marcado como **'Entregado'**.")
+                        st.info("🔒 **Carga de Fotos Inactiva:** Se habilitará cuando el embarque esté en estatus **'Entregado'**.")
 
-                    df_fotos_almacen = pd.read_sql_query(
-                        "SELECT * FROM documentos_embarque WHERE num_invoice = ? AND tipo_documento = 'Fotos de Descarga'", 
-                        conn, params=(selected_invoice,)
-                    )
+                    res_fotos = supabase.table("documentos_embarque").select("*").eq("num_invoice", selected_invoice).eq("tipo_documento", "Fotos de Descarga").execute()
+                    df_fotos_almacen = pd.DataFrame(res_fotos.data) if res_fotos.data else pd.DataFrame()
+
                     if not df_fotos_almacen.empty:
                         st.markdown("##### 📸 Fotos y Reportes de Descarga Registrados:")
                         for idx_f, f_row in df_fotos_almacen.iterrows():
@@ -623,40 +612,26 @@ if menu == "📋 Control de Embarques":
                             c_f1.write(f"📄 {f_row['nombre_archivo']}")
                             c_f2.caption(f"📅 {f_row['fecha_subida']}")
                             with c_f3:
-                                if has_valid_file(f_row['path_archivo']):
-                                    with open(f_row['path_archivo'], "rb") as f_img:
-                                        st.download_button(
-                                            label="⬇️ Descargar",
-                                            data=f_img,
-                                            file_name=f_row['nombre_archivo'],
-                                            mime="application/octet-stream",
-                                            key=f"dl_alm_{f_row['id']}"
-                                        )
+                                if f_row['path_archivo']:
+                                    st.link_button("⬇️ Ver Foto", f_row['path_archivo'], use_container_width=True)
 
                 # =============================================================
-                # 2. ROL ADMINISTRACIÓN (4 DOCUMENTOS PRINCIPALES SOLAMENTE)
+                # 2. ROL ADMINISTRACIÓN (DOCUMENTOS PRINCIPALES)
                 # =============================================================
                 elif role == "admon":
                     st.subheader("💼 Expediente Digital del Embarque")
                     docs_principales = [
-                        ("Packing List", row_data['path_packing']),
-                        ("Factura Comercial (Invoice)", row_data['path_invoice']),
-                        ("Factura de Flete", row_data['path_flete']),
-                        ("Bill of Lading (BL)", row_data['path_bl'])
+                        ("Packing List", row_data.get('path_packing')),
+                        ("Factura Comercial (Invoice)", row_data.get('path_invoice')),
+                        ("Factura de Flete", row_data.get('path_flete')),
+                        ("Bill of Lading (BL)", row_data.get('path_bl'))
                     ]
                     col_d1, col_d2 = st.columns(2)
-                    for idx, (label, path) in enumerate(docs_principales):
+                    for idx, (label, url) in enumerate(docs_principales):
                         col_target = col_d1 if idx % 2 == 0 else col_d2
                         with col_target:
-                            if has_valid_file(path):
-                                with open(path, "rb") as f:
-                                    st.download_button(
-                                        label=f"⬇️ Descargar {label}",
-                                        data=f,
-                                        file_name=os.path.basename(path),
-                                        mime="application/octet-stream",
-                                        key=f"main_admon_{label}_{selected_invoice}"
-                                    )
+                            if url and str(url).startswith('http'):
+                                st.link_button(f"⬇️ Ver {label}", url, use_container_width=True)
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
@@ -674,33 +649,25 @@ if menu == "📋 Control de Embarques":
 
                     st.subheader("💼 Expediente Digital del Embarque (Documentos Principales)")
                     docs_principales = [
-                        ("Packing List", row_data['path_packing']),
-                        ("Factura Comercial (Invoice)", row_data['path_invoice']),
-                        ("Factura de Flete", row_data['path_flete']),
-                        ("Bill of Lading (BL)", row_data['path_bl'])
+                        ("Packing List", row_data.get('path_packing')),
+                        ("Factura Comercial (Invoice)", row_data.get('path_invoice')),
+                        ("Factura de Flete", row_data.get('path_flete')),
+                        ("Bill of Lading (BL)", row_data.get('path_bl'))
                     ]
                     col_d1, col_d2 = st.columns(2)
-                    for idx, (label, path) in enumerate(docs_principales):
+                    for idx, (label, url) in enumerate(docs_principales):
                         col_target = col_d1 if idx % 2 == 0 else col_d2
                         with col_target:
-                            if has_valid_file(path):
-                                with open(path, "rb") as f:
-                                    st.download_button(
-                                        label=f"⬇️ Descargar {label}",
-                                        data=f,
-                                        file_name=os.path.basename(path),
-                                        mime="application/octet-stream",
-                                        key=f"main_admin_{label}_{selected_invoice}"
-                                    )
+                            if url and str(url).startswith('http'):
+                                st.link_button(f"⬇️ Ver {label}", url, use_container_width=True)
                             else:
                                 st.caption(f"❌ {label}: No cargado")
 
                     st.markdown("---")
                     
-                    # -------------------------------------------------------------
-                    # EXPEDIENTE ANEXO PLEGABLE Y COMPACTO (MEJORA DE UX)
-                    # -------------------------------------------------------------
-                    df_extra_docs = pd.read_sql_query("SELECT * FROM documentos_embarque WHERE num_invoice = ?", conn, params=(selected_invoice,))
+                    # Expediente Anexo
+                    res_anx = supabase.table("documentos_embarque").select("*").eq("num_invoice", selected_invoice).execute()
+                    df_extra_docs = pd.DataFrame(res_anx.data) if res_anx.data else pd.DataFrame()
                     cant_anexos = len(df_extra_docs)
                     
                     with st.expander(f"📁 **Expediente Anexo y Documentación Adicional** ({cant_anexos} archivo(s) cargado(s))", expanded=False):
@@ -712,26 +679,27 @@ if menu == "📋 Control de Embarques":
                             with c_exp2:
                                 extra_files = st.file_uploader("Seleccionar Archivo(s) *", accept_multiple_files=True, key=f"uploader_extra_{selected_invoice}")
 
-                            btn_subir_extra = st.form_submit_button("📤 Guardar Documentos en Expediente", type="primary", use_container_width=True)
+                            btn_subir_extra = st.form_submit_button("📤 Guardar Documentos en la Nube", type="primary", use_container_width=True)
 
                             if btn_subir_extra:
                                 if not extra_files:
                                     st.error("❌ Debe seleccionar al menos un archivo.")
                                 else:
-                                    c = conn.cursor()
                                     for ef in extra_files:
-                                        e_path, e_name = save_extra_file(ef, selected_invoice, tipo_doc_sel)
-                                        c.execute('''
-                                            INSERT INTO documentos_embarque (num_invoice, tipo_documento, nombre_archivo, path_archivo, fecha_subida, subido_por)
-                                            VALUES (?, ?, ?, ?, ?, ?)
-                                        ''', (selected_invoice, tipo_doc_sel, e_name, e_path, str(date.today()), st.session_state.user_dept))
-                                    conn.commit()
-                                    st.success(f"✅ ¡{len(extra_files)} documento(s) adjuntado(s) exitosamente como '{tipo_doc_sel}'!")
+                                        e_url = upload_file_to_supabase(ef, selected_invoice, "ANX", bucket="documentos")
+                                        supabase.table("documentos_embarque").insert({
+                                            "num_invoice": selected_invoice,
+                                            "tipo_documento": tipo_doc_sel,
+                                            "nombre_archivo": ef.name,
+                                            "path_archivo": e_url,
+                                            "fecha_subida": str(date.today()),
+                                            "subido_por": st.session_state.user_dept
+                                        }).execute()
+                                    st.success(f"✅ ¡{len(extra_files)} documento(s) adjuntado(s) exitosamente en Supabase!")
                                     st.rerun()
 
                         st.divider()
 
-                        # Listado de Anexos
                         if not df_extra_docs.empty:
                             st.markdown("##### 📄 Archivos Anexos Registrados en este Embarque:")
                             for idx_doc, doc_row in df_extra_docs.iterrows():
@@ -741,31 +709,19 @@ if menu == "📋 Control de Embarques":
                                 c_doc3.caption(f"📅 {doc_row['fecha_subida']} ({doc_row['subido_por']})")
                                 
                                 with c_doc4:
-                                    if has_valid_file(doc_row['path_archivo']):
-                                        with open(doc_row['path_archivo'], "rb") as f_ex:
-                                            st.download_button(
-                                                label="⬇️ Descargar",
-                                                data=f_ex,
-                                                file_name=doc_row['nombre_archivo'],
-                                                mime="application/octet-stream",
-                                                key=f"dl_extra_{doc_row['id']}"
-                                            )
-                                    else:
-                                        st.caption("Archivo no hallado")
+                                    if doc_row['path_archivo']:
+                                        st.link_button("⬇️ Abrir", doc_row['path_archivo'], use_container_width=True)
                                     
                                     if st.button("🗑️", key=f"del_extra_{doc_row['id']}", help="Eliminar este archivo"):
-                                        c = conn.cursor()
-                                        c.execute("DELETE FROM documentos_embarque WHERE id = ?", (doc_row['id'],))
-                                        conn.commit()
+                                        supabase.table("documentos_embarque").delete().eq("id", doc_row['id']).execute()
                                         st.success("Documento eliminado.")
                                         st.rerun()
                                 st.divider()
                         else:
                             st.info("No hay documentos anexos adjuntados para este embarque aún.")
 
-                        # Botón Descarga ZIP
                         st.markdown("##### 📦 Descarga Masiva del Expediente")
-                        zip_buffer = generar_zip_expediente(selected_invoice, row_data, conn)
+                        zip_buffer = generar_zip_expediente(selected_invoice, row_data)
                         st.download_button(
                             label=f"📦 Descargar Expediente COMPLETO en .ZIP ({selected_invoice})",
                             data=zip_buffer,
@@ -779,11 +735,13 @@ if menu == "📋 Control de Embarques":
                     # BALANCE FINANCIERO FÁBRICA
                     st.markdown("---")
                     st.subheader(f"💰 Balance Financiero de Fábrica ({selected_invoice})")
-                    df_pagos_emb = pd.read_sql_query("SELECT * FROM pagos_embarques WHERE num_invoice = ?", conn, params=(selected_invoice,))
+                    res_p_emb = supabase.table("pagos_embarques").select("*").eq("num_invoice", selected_invoice).execute()
+                    df_pagos_emb = pd.DataFrame(res_p_emb.data) if res_p_emb.data else pd.DataFrame()
+                    
                     df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
                     
                     monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
-                    monto_factura = float(row_data['monto_factura']) if pd.notna(row_data['monto_factura']) else 0.0
+                    monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
                     saldo_pendiente = monto_factura - monto_total_pagado_fabrica
 
                     m1, m2 = st.columns(2)
@@ -810,9 +768,8 @@ if menu == "📋 Control de Embarques":
                             c_p3.write(f"**Monto:** ${p_row['monto']:,.2f} USD")
                             c_p4.write(f"**Ref:** {p_row['referencia']} ({p_row['fecha_pago']})")
                             
-                            if has_valid_file(p_row['path_comprobante']):
-                                with open(p_row['path_comprobante'], "rb") as f_comp:
-                                    st.download_button(label=f"📄 Ver Comprobante #{p_row['referencia']}", data=f_comp, file_name=os.path.basename(p_row['path_comprobante']), mime="application/octet-stream", key=f"dl_pago_{p_row['id']}")
+                            if p_row.get('path_comprobante'):
+                                st.link_button(f"📄 Ver Comprobante #{p_row['referencia']}", p_row['path_comprobante'], use_container_width=True)
                             st.divider()
 
                     st.markdown("---")
@@ -835,25 +792,25 @@ if menu == "📋 Control de Embarques":
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.text_input("Número de Invoice", value=str(row_data['num_invoice']), disabled=True)
-                    fabricante_e = st.text_input("Fabricante / Proveedor", value=str(row_data['fabricante'] or ''))
-                    monto_factura_e = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row_data['monto_factura'] or 0.0), step=100.0, format="%.2f")
-                    producto_e = st.text_input("Descripción del Producto", value=str(row_data['producto'] or ''))
-                    origen_e = st.text_input("Origen", value=str(row_data['origen'] or ''))
-                    destino_e = st.text_input("Destino", value=str(row_data['destino'] or ''))
+                    fabricante_e = st.text_input("Fabricante / Proveedor", value=str(row_data.get('fabricante') or ''))
+                    monto_factura_e = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row_data.get('monto_factura') or 0.0), step=100.0, format="%.2f")
+                    producto_e = st.text_input("Descripción del Producto", value=str(row_data.get('producto') or ''))
+                    origen_e = st.text_input("Origen", value=str(row_data.get('origen') or ''))
+                    destino_e = st.text_input("Destino", value=str(row_data.get('destino') or ''))
                     
                 with col2:
-                    num_bl_e = st.text_input("Número de BL", value=str(row_data['num_bl'] or ''))
-                    nav_val = str(row_data['naviera']) if row_data['naviera'] in NAVIERAS else NAVIERAS[0]
+                    num_bl_e = st.text_input("Número de BL", value=str(row_data.get('num_bl') or ''))
+                    nav_val = str(row_data.get('naviera')) if row_data.get('naviera') in NAVIERAS else NAVIERAS[0]
                     naviera_e = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
-                    num_contenedor_e = st.text_input("Número de Contenedor", value=str(row_data['num_contenedor'] or ''))
-                    agente_carga_e = st.text_input("Agente de Carga", value=str(row_data['agente_carga'] or ''))
-                    agente_aduanas_e = st.text_input("Agente de Aduanas", value=str(row_data['agente_aduanas'] or ''))
+                    num_contenedor_e = st.text_input("Número de Contenedor", value=str(row_data.get('num_contenedor') or ''))
+                    agente_carga_e = st.text_input("Agente de Carga", value=str(row_data.get('agente_carga') or ''))
+                    agente_aduanas_e = st.text_input("Agente de Aduanas", value=str(row_data.get('agente_aduanas') or ''))
                     
                 with col3:
-                    consignatario_e = st.text_input("Consignatario", value=str(row_data['consignatario'] or ''))
-                    fecha_v = safe_parse_date(row_data['eta'])
+                    consignatario_e = st.text_input("Consignatario", value=str(row_data.get('consignatario') or ''))
+                    fecha_v = safe_parse_date(row_data.get('eta'))
                     eta_e = st.date_input("Estimado de Arribo (ETA)", value=fecha_v)
-                    est_v = str(row_data['estatus']) if row_data['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
+                    est_v = str(row_data.get('estatus')) if row_data.get('estatus') in ESTATUS_LISTA else ESTATUS_LISTA[0]
                     estatus_e = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_v))
                 
                 st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
@@ -868,27 +825,22 @@ if menu == "📋 Control de Embarques":
                 submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
                 
             if submit_q_edit:
-                p_pack = save_file(q_file_pack, st.session_state.editing_invoice, "packing") or row_data['path_packing']
-                p_inv = save_file(q_file_inv, st.session_state.editing_invoice, "invoice") or row_data['path_invoice']
-                p_fle = save_file(q_file_fle, st.session_state.editing_invoice, "flete") or row_data['path_flete']
-                p_bl = save_file(q_file_bl, st.session_state.editing_invoice, "bl") or row_data['path_bl']
+                p_pack = upload_file_to_supabase(q_file_pack, st.session_state.editing_invoice, "PACK") or row_data.get('path_packing')
+                p_inv = upload_file_to_supabase(q_file_inv, st.session_state.editing_invoice, "INV") or row_data.get('path_invoice')
+                p_fle = upload_file_to_supabase(q_file_fle, st.session_state.editing_invoice, "FLE") or row_data.get('path_flete')
+                p_bl = upload_file_to_supabase(q_file_bl, st.session_state.editing_invoice, "BL") or row_data.get('path_bl')
                 
-                c = conn.cursor()
-                c.execute('''
-                    UPDATE embarques SET
-                        origen = ?, destino = ?, fabricante = ?, agente_carga = ?,
-                        agente_aduanas = ?, consignatario = ?, producto = ?, num_bl = ?,
-                        naviera = ?, num_contenedor = ?, eta = ?, estatus = ?,
-                        path_packing = ?, path_invoice = ?, path_flete = ?, path_bl = ?,
-                        monto_factura = ?
-                    WHERE num_invoice = ?
-                ''', (origen_e, destino_e, fabricante_e, agente_carga_e,
-                      agente_aduanas_e, consignatario_e, producto_e, num_bl_e,
-                      naviera_e, num_contenedor_e, str(eta_e), estatus_e,
-                      p_pack, p_inv, p_fle, p_bl, monto_factura_e, st.session_state.editing_invoice))
-                conn.commit()
+                supabase.table("embarques").update({
+                    "origen": origen_e, "destino": destino_e, "fabricante": fabricante_e,
+                    "agente_carga": agente_carga_e, "agente_aduanas": agente_aduanas_e,
+                    "consignatario": consignatario_e, "producto": producto_e, "num_bl": num_bl_e,
+                    "naviera": naviera_e, "num_contenedor": num_contenedor_e, "eta": str(eta_e),
+                    "estatus": estatus_e, "path_packing": p_pack, "path_invoice": p_inv,
+                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_e
+                }).eq("num_invoice", st.session_state.editing_invoice).execute()
+                
                 st.session_state.editing_invoice = None
-                st.success("✅ ¡Embarque actualizado con éxito!")
+                st.success("✅ ¡Embarque actualizado con éxito en Supabase!")
                 st.rerun()
 
 # --- MENÚ 2: PAGOS INTERNACIONALES ---
@@ -896,7 +848,8 @@ elif "Pagos Internacionales" in menu:
     st.title("💳 Registro y Control de Pagos Internacionales")
     st.caption("Módulo exclusivo para Compras: Administra, modifica y elimina transferencias realizadas")
 
-    df_emb = pd.read_sql_query("SELECT num_invoice, fabricante, num_contenedor, monto_factura, estatus FROM embarques", conn)
+    res_emb = supabase.table("embarques").select("num_invoice, fabricante, num_contenedor, monto_factura, estatus").execute()
+    df_emb = pd.DataFrame(res_emb.data) if res_emb.data else pd.DataFrame()
     
     if df_emb.empty:
         st.warning("⚠️ Primero debe registrar al menos un embarque para asignarle pagos.")
@@ -924,29 +877,31 @@ elif "Pagos Internacionales" in menu:
                     if not num_ref or file_comprobante is None or monto_pago <= 0:
                         st.error("❌ Todos los campos marcados con (*) son obligatorios, incluyendo el comprobante.")
                     else:
-                        ref_clean = "".join(c for c in num_ref if c.isalnum() or c in ('-', '_'))
-                        file_path_pago = save_file(file_comprobante, f"{selected_inv_key}_{ref_clean}", "COMPROBANTE", is_payment=True)
+                        file_path_pago = upload_file_to_supabase(file_comprobante, f"{selected_inv_key}_{num_ref}", "COMP", bucket="comprobantes")
                         
-                        c = conn.cursor()
-                        c.execute('''
-                            INSERT INTO pagos_embarques (num_invoice, tipo_pago, banco, monto, fecha_pago, referencia, path_comprobante)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ''', (selected_inv_key, tipo_pago, banco_pago, monto_pago, str(fecha_pago), num_ref, file_path_pago))
+                        supabase.table("pagos_embarques").insert({
+                            "num_invoice": selected_inv_key,
+                            "tipo_pago": tipo_pago,
+                            "banco": banco_pago,
+                            "monto": monto_pago,
+                            "fecha_pago": str(fecha_pago),
+                            "referencia": num_ref,
+                            "path_comprobante": file_path_pago
+                        }).execute()
                         
                         if tipo_pago == "Pago a Fábrica":
-                            c.execute("SELECT estatus FROM embarques WHERE num_invoice = ?", (selected_inv_key,))
-                            estatus_actual = c.fetchone()[0]
-                            if estatus_actual == "Pendiente Pago":
-                                c.execute("UPDATE embarques SET estatus = 'En Producción' WHERE num_invoice = ?", (selected_inv_key,))
-                                st.info("ℹ️ **Estatus Actualizado:** El embarque cambió automáticamente de 'Pendiente Pago' a **'En Producción'**.")
+                            res_c = supabase.table("embarques").select("estatus").eq("num_invoice", selected_inv_key).execute()
+                            if res_c.data and res_c.data[0]['estatus'] == "Pendiente Pago":
+                                supabase.table("embarques").update({"estatus": "En Producción"}).eq("num_invoice", selected_inv_key).execute()
+                                st.info("ℹ️ **Estatus Actualizado:** El embarque cambió automáticamente a **'En Producción'**.")
 
-                        conn.commit()
-                        st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado con éxito para la Invoice {selected_inv_key}.")
+                        st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado exitosamente.")
                         st.rerun()
 
         with tab_editar:
             st.subheader("🛠️ Modificar o Eliminar un Pago Registrado")
-            df_all_pagos = pd.read_sql_query("SELECT * FROM pagos_embarques ORDER BY id DESC", conn)
+            res_all_p = supabase.table("pagos_embarques").select("*").order("id", desc=True).execute()
+            df_all_pagos = pd.DataFrame(res_all_p.data) if res_all_p.data else pd.DataFrame()
 
             if df_all_pagos.empty:
                 st.info("No hay pagos registrados para modificar.")
@@ -964,7 +919,7 @@ elif "Pagos Internacionales" in menu:
                         monto_pago_edit = st.number_input("Monto del Abono ($ USD)", min_value=0.01, value=float(pago_row['monto']), step=100.0, format="%.2f")
                     with col_e2:
                         fecha_pago_edit = st.date_input("Fecha del Pago", value=safe_parse_date(pago_row['fecha_pago']))
-                        num_ref_edit = st.text_input("Número de Referencia", value=str(pago_row['referencia'] or ''))
+                        num_ref_edit = st.text_input("Número de Referencia", value=str(pago_row.get('referencia') or ''))
                         file_comp_edit = st.file_uploader("Reemplazar Comprobante (Opcional)", type=["png", "jpg", "jpeg", "pdf"])
 
                     col_b1, col_b2 = st.columns(2)
@@ -975,25 +930,24 @@ elif "Pagos Internacionales" in menu:
                     if not num_ref_edit or monto_pago_edit <= 0:
                         st.error("❌ El monto debe ser mayor a 0 y la referencia no puede estar vacía.")
                     else:
-                        new_path = save_file(file_comp_edit, f"{pago_row['num_invoice']}_{num_ref_edit}", "COMPROBANTE", is_payment=True) or pago_row['path_comprobante']
-                        c = conn.cursor()
-                        c.execute('''
-                            UPDATE pagos_embarques SET tipo_pago = ?, banco = ?, monto = ?, fecha_pago = ?, referencia = ?, path_comprobante = ? WHERE id = ?
-                        ''', (tipo_pago_edit, banco_pago_edit, monto_pago_edit, str(fecha_pago_edit), num_ref_edit, new_path, selected_pago_id))
-                        conn.commit()
+                        new_path = upload_file_to_supabase(file_comp_edit, f"{pago_row['num_invoice']}_{num_ref_edit}", "COMP", bucket="comprobantes") or pago_row.get('path_comprobante')
+                        supabase.table("pagos_embarques").update({
+                            "tipo_pago": tipo_pago_edit, "banco": banco_pago_edit, "monto": monto_pago_edit,
+                            "fecha_pago": str(fecha_pago_edit), "referencia": num_ref_edit, "path_comprobante": new_path
+                        }).eq("id", selected_pago_id).execute()
+                        
                         st.success(f"✅ ¡El pago ID #{selected_pago_id} ha sido actualizado correctamente!")
                         st.rerun()
 
                 if delete_pago:
-                    c = conn.cursor()
-                    c.execute("DELETE FROM pagos_embarques WHERE id = ?", (selected_pago_id,))
-                    conn.commit()
+                    supabase.table("pagos_embarques").delete().eq("id", selected_pago_id).execute()
                     st.warning(f"🗑️ El pago ID #{selected_pago_id} ha sido eliminado.")
                     st.rerun()
 
         st.markdown("---")
         st.subheader("📊 Historial General de Pagos Registrados")
-        df_all_pagos = pd.read_sql_query("SELECT * FROM pagos_embarques ORDER BY id DESC", conn)
+        res_all_p = supabase.table("pagos_embarques").select("*").order("id", desc=True).execute()
+        df_all_pagos = pd.DataFrame(res_all_p.data) if res_all_p.data else pd.DataFrame()
         if df_all_pagos.empty:
             st.info("No se registra ningún pago en el sistema.")
         else:
@@ -1017,40 +971,64 @@ elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
     if uploaded_file is not None:
         try:
             df_upload = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-            df_upload.columns = df_upload.columns.str.strip().str.lower()
-            col_map = {'invoice': 'num_invoice', 'empresa': 'fabricante', 'agente': 'agente_carga', 'ag aduana': 'agente_aduanas', 'consignee': 'consignatario', 'estimado': 'eta', 'org /bl / booking': 'num_bl', 'monto': 'monto_factura'}
-            df_upload.rename(columns=col_map, inplace=True)
-            st.dataframe(df_upload.head(10), use_container_width=True)
+            
+            clean_cols = []
+            for i, col in enumerate(df_upload.columns):
+                if pd.isna(col) or str(col).strip() == '' or 'unnamed' in str(col).lower():
+                    clean_cols.append(f"columna_{i+1}")
+                else:
+                    clean_cols.append(str(col).strip().lower())
+            df_upload.columns = clean_cols
 
-            if 'num_invoice' in df_upload.columns and st.button("🚀 Procesar e Importar a Base de Datos", type="primary"):
-                c = conn.cursor()
+            col_map = {
+                'invoice': 'num_invoice', 'empresa': 'fabricante', 'agente': 'agente_carga', 
+                'ag aduana': 'agente_aduanas', 'consignee': 'consignatario', 'estimado': 'eta', 
+                'org /bl / booking': 'num_bl', 'monto': 'monto_factura'
+            }
+            df_upload.rename(columns=col_map, inplace=True)
+            
+            df_preview = df_upload.head(10).fillna("")
+            st.dataframe(df_preview, use_container_width=True)
+
+            if 'num_invoice' in df_upload.columns and st.button("🚀 Procesar e Importar a Supabase", type="primary"):
                 n_up, n_new = 0, 0
                 for _, row in df_upload.iterrows():
                     inv = str(row.get('num_invoice', '')).strip()
-                    if not inv or inv == 'nan': continue
-                    bl = str(row.get('num_bl', '')) if pd.notna(row.get('num_bl')) else ''
-                    cont = str(row.get('num_contenedor', '')) if pd.notna(row.get('num_contenedor')) else ''
-                    nav = str(row.get('naviera', '')) if pd.notna(row.get('naviera')) else ''
-                    fab = str(row.get('fabricante', '')) if pd.notna(row.get('fabricante')) else ''
-                    prod = str(row.get('producto', '')) if pd.notna(row.get('producto')) else ''
-                    ori = str(row.get('origen', 'China')) if pd.notna(row.get('origen')) else 'China'
-                    des = str(row.get('destino', 'Venezuela')) if pd.notna(row.get('destino')) else 'Venezuela'
-                    eta = str(row.get('eta', '')) if pd.notna(row.get('eta')) else ''
-                    est = str(row.get('estatus', 'Pendiente Pago')) if pd.notna(row.get('estatus')) else 'Pendiente Pago'
-                    ag_c = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) else ''
-                    ag_a = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) else ''
-                    cons = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) else ''
-                    monto = float(row.get('monto_factura', 0.0)) if pd.notna(row.get('monto_factura')) else 0.0
+                    if not inv or inv.lower() in ['nan', 'none', '']: continue
+                    
+                    bl = str(row.get('num_bl', '')) if pd.notna(row.get('num_bl')) and str(row.get('num_bl')).lower() != 'nan' else ''
+                    cont = str(row.get('num_contenedor', '')) if pd.notna(row.get('num_contenedor')) and str(row.get('num_contenedor')).lower() != 'nan' else ''
+                    nav = str(row.get('naviera', '')) if pd.notna(row.get('naviera')) and str(row.get('naviera')).lower() != 'nan' else ''
+                    fab = str(row.get('fabricante', '')) if pd.notna(row.get('fabricante')) and str(row.get('fabricante')).lower() != 'nan' else ''
+                    prod = str(row.get('producto', '')) if pd.notna(row.get('producto')) and str(row.get('producto')).lower() != 'nan' else ''
+                    ori = str(row.get('origen', 'China')) if pd.notna(row.get('origen')) and str(row.get('origen')).lower() != 'nan' else 'China'
+                    des = str(row.get('destino', 'Venezuela')) if pd.notna(row.get('destino')) and str(row.get('destino')).lower() != 'nan' else 'Venezuela'
+                    eta = str(row.get('eta', '')) if pd.notna(row.get('eta')) and str(row.get('eta')).lower() != 'nan' else ''
+                    est = str(row.get('estatus', 'Pendiente Pago')) if pd.notna(row.get('estatus')) and str(row.get('estatus')).lower() != 'nan' else 'Pendiente Pago'
+                    ag_c = str(row.get('agente_carga', '')) if pd.notna(row.get('agente_carga')) and str(row.get('agente_carga')).lower() != 'nan' else ''
+                    ag_a = str(row.get('agente_aduanas', '')) if pd.notna(row.get('agente_aduanas')) and str(row.get('agente_aduanas')).lower() != 'nan' else ''
+                    cons = str(row.get('consignatario', '')) if pd.notna(row.get('consignatario')) and str(row.get('consignatario')).lower() != 'nan' else ''
+                    
+                    try: monto = float(row.get('monto_factura', 0.0)) if pd.notna(row.get('monto_factura')) else 0.0
+                    except Exception: monto = 0.0
 
-                    c.execute("SELECT id FROM embarques WHERE num_invoice = ?", (inv,))
-                    if c.fetchone():
-                        c.execute('''UPDATE embarques SET num_bl=?, num_contenedor=?, naviera=?, fabricante=?, producto=?, origen=?, destino=?, eta=?, estatus=?, agente_carga=?, agente_aduanas=?, consignatario=?, monto_factura=? WHERE num_invoice=?''', (bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, monto, inv))
+                    payload = {
+                        "num_invoice": inv, "num_bl": bl, "num_contenedor": cont, "naviera": nav,
+                        "fabricante": fab, "producto": prod, "origen": ori, "destino": des,
+                        "eta": eta, "estatus": est, "agente_carga": ag_c, "agente_aduanas": ag_a,
+                        "consignatario": cons, "monto_factura": monto
+                    }
+
+                    res_check = supabase.table("embarques").select("id").eq("num_invoice", inv).execute()
+                    if res_check.data:
+                        supabase.table("embarques").update(payload).eq("num_invoice", inv).execute()
                         n_up += 1
                     else:
-                        c.execute('''INSERT INTO embarques (num_invoice, num_bl, num_contenedor, naviera, fabricante, producto, origen, destino, eta, estatus, agente_carga, agente_aduanas, consignatario, monto_factura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (inv, bl, cont, nav, fab, prod, ori, des, eta, est, ag_c, ag_a, cons, monto))
+                        supabase.table("embarques").insert(payload).execute()
                         n_new += 1
-                conn.commit()
-                st.success(f"✅ Éxito: {n_new} nuevos registros, {n_up} actualizados.")
+                        
+                st.success(f"✅ ¡Éxito en la Nube!: {n_new} nuevos registros, {n_up} actualizados.")
+                st.rerun()
         except Exception as e:
             st.error(f"Error procesando archivo: {e}")
 
@@ -1077,7 +1055,7 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
             eta = st.date_input("Estimado de Arribo (ETA)")
             estatus = st.selectbox("Estatus Inicial", ESTATUS_LISTA, index=0)
         
-        st.markdown("### Adjuntar Documentación (PDF/Excel)")
+        st.markdown("### Adjuntar Documentación a Supabase (PDF/Excel)")
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             file_packing = st.file_uploader("Packing List (Para Almacén)", type=["pdf", "xlsx"])
@@ -1091,25 +1069,33 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
             if not num_invoice or not num_bl:
                 st.error("El N° de Invoice y N° de BL son obligatorios.")
             else:
-                p_pack = save_file(file_packing, num_invoice, "packing")
-                p_inv = save_file(file_invoice, num_invoice, "invoice")
-                p_fle = save_file(file_flete, num_invoice, "flete")
-                p_bl = save_file(file_bl, num_invoice, "bl")
+                p_pack = upload_file_to_supabase(file_packing, num_invoice, "PACK")
+                p_inv = upload_file_to_supabase(file_invoice, num_invoice, "INV")
+                p_fle = upload_file_to_supabase(file_flete, num_invoice, "FLE")
+                p_bl = upload_file_to_supabase(file_bl, num_invoice, "BL")
                 
-                c = conn.cursor()
                 try:
-                    c.execute('''INSERT INTO embarques (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, eta, estatus, path_packing, path_invoice, path_flete, path_bl, monto_factura) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (origen, destino, fabricante, num_invoice, agente_carga, agente_aduanas, consignatario, producto, num_bl, naviera, num_contenedor, str(eta), estatus, p_pack, p_inv, p_fle, p_bl, monto_factura))
-                    conn.commit()
-                    st.success(f"Embarque Invoice {num_invoice} registrado en estatus '{estatus}'.")
-                except sqlite3.IntegrityError:
-                    st.error(f"❌ La Invoice {num_invoice} ya existe.")
+                    supabase.table("embarques").insert({
+                        "origen": origen, "destino": destino, "fabricante": fabricante,
+                        "num_invoice": num_invoice, "agente_carga": agente_carga,
+                        "agente_aduanas": agente_aduanas, "consignatario": consignatario,
+                        "producto": producto, "num_bl": num_bl, "naviera": naviera,
+                        "num_contenedor": num_contenedor, "eta": str(eta), "estatus": estatus,
+                        "path_packing": p_pack, "path_invoice": p_inv, "path_flete": p_fle,
+                        "path_bl": p_bl, "monto_factura": monto_factura
+                    }).execute()
+                    st.success(f"✅ Embarque Invoice {num_invoice} guardado exitosamente en la Nube.")
+                except Exception as e:
+                    st.error(f"❌ La Invoice {num_invoice} ya existe o hubo un fallo: {e}")
 
 # --- MENÚ 5: EDITAR EMBARQUE ---
 elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
     st.title("✏️ Editar Embarque Existente")
-    df = pd.read_sql_query("SELECT * FROM embarques", conn)
+    res_emb = supabase.table("embarques").select("*").execute()
+    df = pd.DataFrame(res_emb.data) if res_emb.data else pd.DataFrame()
+    
     if df.empty:
-        st.info("No hay embarques para editar.")
+        st.info("No hay embarques para editar en Supabase.")
     else:
         invoices_list = list(df['num_invoice'].unique())
         selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", invoices_list)
@@ -1119,23 +1105,23 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
             col1, col2, col3 = st.columns(3)
             with col1:
                 num_invoice_edit = st.text_input("Número de Invoice", value=str(row['num_invoice']), disabled=True)
-                fabricante_edit = st.text_input("Fabricante / Proveedor", value=str(row['fabricante'] or ''))
-                monto_factura_edit = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row['monto_factura'] or 0.0), step=100.0, format="%.2f")
-                producto_edit = st.text_input("Descripción del Producto", value=str(row['producto'] or ''))
-                origen_edit = st.text_input("Origen", value=str(row['origen'] or ''))
-                destino_edit = st.text_input("Destino", value=str(row['destino'] or ''))
+                fabricante_edit = st.text_input("Fabricante / Proveedor", value=str(row.get('fabricante') or ''))
+                monto_factura_edit = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row.get('monto_factura') or 0.0), step=100.0, format="%.2f")
+                producto_edit = st.text_input("Descripción del Producto", value=str(row.get('producto') or ''))
+                origen_edit = st.text_input("Origen", value=str(row.get('origen') or ''))
+                destino_edit = st.text_input("Destino", value=str(row.get('destino') or ''))
             with col2:
-                num_bl_edit = st.text_input("Número de BL", value=str(row['num_bl'] or ''))
-                nav_val = str(row['naviera']) if row['naviera'] in NAVIERAS else NAVIERAS[0]
+                num_bl_edit = st.text_input("Número de BL", value=str(row.get('num_bl') or ''))
+                nav_val = str(row.get('naviera')) if row.get('naviera') in NAVIERAS else NAVIERAS[0]
                 naviera_edit = st.selectbox("Línea Naviera", NAVIERAS, index=NAVIERAS.index(nav_val))
-                num_contenedor_edit = st.text_input("Número de Contenedor", value=str(row['num_contenedor'] or ''))
-                agente_carga_edit = st.text_input("Agente de Carga", value=str(row['agente_carga'] or ''))
-                agente_aduanas_edit = st.text_input("Agente de Aduanas", value=str(row['agente_aduanas'] or ''))
+                num_contenedor_edit = st.text_input("Número de Contenedor", value=str(row.get('num_contenedor') or ''))
+                agente_carga_edit = st.text_input("Agente de Carga", value=str(row.get('agente_carga') or ''))
+                agente_aduanas_edit = st.text_input("Agente de Aduanas", value=str(row.get('agente_aduanas') or ''))
             with col3:
-                consignatario_edit = st.text_input("Consignatario", value=str(row['consignatario'] or ''))
-                fecha_val = safe_parse_date(row['eta'])
+                consignatario_edit = st.text_input("Consignatario", value=str(row.get('consignatario') or ''))
+                fecha_val = safe_parse_date(row.get('eta'))
                 eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
-                est_val = str(row['estatus']) if row['estatus'] in ESTATUS_LISTA else ESTATUS_LISTA[0]
+                est_val = str(row.get('estatus')) if row.get('estatus') in ESTATUS_LISTA else ESTATUS_LISTA[0]
                 estatus_edit = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_val))
             
             st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
@@ -1147,16 +1133,20 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                 new_file_flete = st.file_uploader("Nueva Factura Flete", type=["pdf"], key="edit_fle")
                 new_file_bl = st.file_uploader("Nuevo BL", type=["pdf"], key="edit_bl")
 
-            submit_edit = st.form_submit_button("💾 Guardar Cambios en Embarque")
+            submit_edit = st.form_submit_button("💾 Guardar Cambios en Supabase")
             if submit_edit:
-                p_pack = save_file(new_file_packing, selected_invoice, "packing") or row['path_packing']
-                p_inv = save_file(new_file_invoice, selected_invoice, "invoice") or row['path_invoice']
-                p_fle = save_file(new_file_flete, selected_invoice, "flete") or row['path_flete']
-                p_bl = save_file(new_file_bl, selected_invoice, "bl") or row['path_bl']
+                p_pack = upload_file_to_supabase(new_file_packing, selected_invoice, "PACK") or row.get('path_packing')
+                p_inv = upload_file_to_supabase(new_file_invoice, selected_invoice, "INV") or row.get('path_invoice')
+                p_fle = upload_file_to_supabase(new_file_flete, selected_invoice, "FLE") or row.get('path_flete')
+                p_bl = upload_file_to_supabase(new_file_bl, selected_invoice, "BL") or row.get('path_bl')
                 
-                c = conn.cursor()
-                c.execute('''UPDATE embarques SET origen=?, destino=?, fabricante=?, agente_carga=?, agente_aduanas=?, consignatario=?, producto=?, num_bl=?, naviera=?, num_contenedor=?, eta=?, estatus=?, path_packing=?, path_invoice=?, path_flete=?, path_bl=?, monto_factura=? WHERE num_invoice=?''', (origen_edit, destino_edit, fabricante_edit, agente_carga_edit, agente_aduanas_edit, consignatario_edit, producto_edit, num_bl_edit, naviera_edit, num_contenedor_edit, str(eta_edit), estatus_edit, p_pack, p_inv, p_fle, p_bl, monto_factura_edit, selected_invoice))
-                conn.commit()
-                st.success(f"✅ Embarque Invoice {selected_invoice} actualizado.")
-
-conn.close()
+                supabase.table("embarques").update({
+                    "origen": origen_edit, "destino": destino_edit, "fabricante": fabricante_edit,
+                    "agente_carga": agente_carga_edit, "agente_aduanas": agente_aduanas_edit,
+                    "consignatario": consignatario_edit, "producto": producto_edit, "num_bl": num_bl_edit,
+                    "naviera": naviera_edit, "num_contenedor": num_contenedor_edit, "eta": str(eta_edit),
+                    "estatus": estatus_edit, "path_packing": p_pack, "path_invoice": p_inv,
+                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit
+                }).eq("num_invoice", selected_invoice).execute()
+                
+                st.success(f"✅ Embarque Invoice {selected_invoice} actualizado en Supabase.")
