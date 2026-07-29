@@ -114,7 +114,6 @@ if modo_mantenimiento_activo and st.session_state.user_role != "admin":
     
     st.warning("ℹ️ **Acceso Pausado:** Por favor reintente más tarde.")
     
-    # Opción de desbloqueo exclusivo para Compras durante Mantenimiento
     with st.expander("🔑 Acceso SOLO Administrador"):
         with st.form("form_maint_login"):
             admin_pin = st.text_input("PIN de Compras", type="password", max_chars=4)
@@ -128,7 +127,7 @@ if modo_mantenimiento_activo and st.session_state.user_role != "admin":
                 else:
                     st.error("❌ Solo el Departamento de Compras puede ingresar durante el mantenimiento.")
     
-    st.stop() # DETIENE LA EJECUCIÓN COMPLETA.
+    st.stop()
 
 # -------------------------------------------------------------
 # FUNCIONES AUXILIARES Y GESTIÓN DE ARCHIVOS
@@ -142,17 +141,18 @@ def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
     if file_obj is None:
         return None
     try:
-        safe_invoice = "".join(c for c in num_invoice if c.isalnum() or c in ('-', '_'))
+        safe_invoice = "".join(c for c in str(num_invoice) if c.isalnum() or c in ('-', '_'))
         clean_filename = "".join(c for c in file_obj.name if c.isalnum() or c in ('.', '_', '-'))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         storage_path = f"{prefix}_{safe_invoice}_{timestamp}_{clean_filename}"
         
         file_bytes = file_obj.getvalue()
+        content_type = file_obj.type or "application/octet-stream"
         
         supabase.storage.from_(bucket).upload(
             path=storage_path, 
             file=file_bytes, 
-            file_options={"upsert": "true", "x-upsert": "true", "content-type": file_obj.type or "application/octet-stream"}
+            file_options={"content-type": content_type}
         )
         return supabase.storage.from_(bucket).get_public_url(storage_path)
     except Exception as e:
@@ -160,11 +160,11 @@ def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
             supabase.storage.from_(bucket).update(
                 path=storage_path,
                 file=file_bytes,
-                file_options={"upsert": "true", "content-type": file_obj.type or "application/octet-stream"}
+                file_options={"content-type": content_type}
             )
             return supabase.storage.from_(bucket).get_public_url(storage_path)
         except Exception as e2:
-            st.error(f"⚠️ Error al subir archivo a la nube: {e2}")
+            st.error(f"🚨 Error en Supabase Storage al subir '{file_obj.name}': {e2}")
             return None
 
 def safe_parse_date(val):
@@ -593,7 +593,7 @@ if menu == "📋 Control de Embarques":
                     else: st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
 
                 # =============================================================
-                # 📝 MÓDULO DE NOTAS / BITÁCORA (SOLO COMPRAS Y ALMACÉN)
+                # 📝 MÓDULO DE NOTAS / BITÁCORA
                 # =============================================================
                 if role in ["admin", "almacen"]:
                     st.markdown("---")
@@ -603,7 +603,7 @@ if menu == "📋 Control de Embarques":
                     with st.form(key=f"form_nota_{selected_invoice}", clear_on_submit=True):
                         nuevo_comentario = st.text_area(
                             "Agregar comentario / novedad corta:",
-                            placeholder="Ej: Contenedor recibido con empaque levemente dañado en paleta 3... / Documentos enviados a aduana.",
+                            placeholder="Ej: Contenedor recibido con empaque levemente dañado en paleta 3...",
                             max_chars=400,
                             height=80
                         )
@@ -662,7 +662,7 @@ if menu == "📋 Control de Embarques":
                         st.subheader("📸 Cargar Fotos / Reporte de Descarga")
                         with st.form(f"form_almacen_upload_{selected_invoice}"):
                             uploaded_descarga_files = st.file_uploader(
-                                "Subir Fotos o Reporte de Descarga (Múltiples archivos permitidos)", 
+                                "Subir Fotos o Reporte de Descarga", 
                                 accept_multiple_files=True,
                                 key=f"upload_almacen_files_{selected_invoice}"
                             )
@@ -910,23 +910,26 @@ if menu == "📋 Control de Embarques":
                 submit_q_edit = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
                 
             if submit_q_edit:
-                p_pack = upload_file_to_supabase(q_file_pack, st.session_state.editing_invoice, "PACK") or clean_url(row_data.get('path_packing'))
-                p_inv = upload_file_to_supabase(q_file_inv, st.session_state.editing_invoice, "INV") or clean_url(row_data.get('path_invoice'))
-                p_fle = upload_file_to_supabase(q_file_fle, st.session_state.editing_invoice, "FLE") or clean_url(row_data.get('path_flete'))
-                p_bl = upload_file_to_supabase(q_file_bl, st.session_state.editing_invoice, "BL") or clean_url(row_data.get('path_bl'))
+                p_pack = upload_file_to_supabase(q_file_pack, st.session_state.editing_invoice, "PACK") if q_file_pack else clean_url(row_data.get('path_packing'))
+                p_inv = upload_file_to_supabase(q_file_inv, st.session_state.editing_invoice, "INV") if q_file_inv else clean_url(row_data.get('path_invoice'))
+                p_fle = upload_file_to_supabase(q_file_fle, st.session_state.editing_invoice, "FLE") if q_file_fle else clean_url(row_data.get('path_flete'))
+                p_bl = upload_file_to_supabase(q_file_bl, st.session_state.editing_invoice, "BL") if q_file_bl else clean_url(row_data.get('path_bl'))
                 
-                supabase.table("embarques").update({
-                    "origen": origen_e, "destino": destino_e, "fabricante": fabricante_e,
-                    "agente_carga": agente_carga_e, "agente_aduanas": agente_aduanas_e,
-                    "consignatario": consignatario_e, "producto": producto_e, "num_bl": num_bl_e,
-                    "naviera": naviera_e, "num_contenedor": num_contenedor_e, "eta": str(eta_e),
-                    "estatus": estatus_e, "path_packing": p_pack, "path_invoice": p_inv,
-                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_e
-                }).eq("num_invoice", st.session_state.editing_invoice).execute()
-                
-                st.session_state.editing_invoice = None
-                st.success("✅ ¡Embarque actualizado con éxito en Supabase!")
-                st.rerun()
+                try:
+                    supabase.table("embarques").update({
+                        "origen": origen_e, "destino": destino_e, "fabricante": fabricante_e,
+                        "agente_carga": agente_carga_e, "agente_aduanas": agente_aduanas_e,
+                        "consignatario": consignatario_e, "producto": producto_e, "num_bl": num_bl_e,
+                        "naviera": naviera_e, "num_contenedor": num_contenedor_e, "eta": str(eta_e),
+                        "estatus": estatus_e, "path_packing": p_pack, "path_invoice": p_inv,
+                        "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_e
+                    }).eq("num_invoice", st.session_state.editing_invoice).execute()
+                    
+                    st.session_state.editing_invoice = None
+                    st.success("✅ ¡Embarque actualizado con éxito en Supabase!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error guardando en Supabase: {e}")
 
 # --- MENÚ 2: PAGOS INTERNACIONALES ---
 elif "Pagos Internacionales" in menu:
@@ -991,9 +994,9 @@ elif "Pagos Internacionales" in menu:
         # TAB 2: MARCAR COMO PAGADO (DEUDA HISTÓRICA)
         with tab_historico:
             st.subheader("⚡ Saldar Deuda Histórica / Marcar Factura como Pagada")
-            st.caption("Utiliza esta opción para embarques viejos donde no se dispone de comprobantes bancarios, de modo que la factura no figure con deuda.")
+            st.caption("Utiliza esta opción para embarques viejos donde no se dispone de comprobantes bancarios, dejando el saldo de la factura en $0.00 USD.")
             
-            selected_inv_hist = st.selectbox("Seleccione Embarque / Invoice a Saldar *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x], key="hist_pago_inv")
+            selected_inv_hist = st.selectbox("Seleccione Embarque / Invoice a Saldar *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x], key="hist_pago_inv_sel")
             
             row_hist = df_emb[df_emb['num_invoice'] == selected_inv_hist].iloc[0]
             monto_fact = float(row_hist['monto_factura']) if pd.notna(row_hist.get('monto_factura')) else 0.0
@@ -1008,29 +1011,41 @@ elif "Pagos Internacionales" in menu:
             col_h2.metric("Abonos Registrados", f"${monto_abonado_hist:,.2f} USD")
             col_h3.metric("Saldo Pendiente Actual", f"${saldo_pend_hist:,.2f} USD")
             
-            if saldo_pend_hist <= 0:
-                st.success("🟢 **Factura Saldada:** Este embarque ya no posee saldo pendiente ($0.00 USD).")
-            else:
-                st.info(f"ℹ️ Se registrará un ajuste de **${saldo_pend_hist:,.2f} USD** para dejar la cuenta en $0.00 USD.")
+            st.markdown("---")
+            with st.form("form_saldar_deuda_historica"):
+                monto_saldar_input = st.number_input(
+                    "Monto a Saldar ($ USD) *", 
+                    value=float(saldo_pend_hist if saldo_pend_hist > 0 else monto_fact), 
+                    min_value=0.0, 
+                    step=100.0, 
+                    format="%.2f",
+                    help="Monto que se registrará para dejar la factura totalmente pagada"
+                )
+                ref_saldar_input = st.text_input("Nota / Referencia", value="PAGO_HISTORICO_OK")
                 
-                if st.button("✅ Marcar Factura como Totalmente Pagada (Saldar Deuda)", type="primary", use_container_width=True):
-                    supabase.table("pagos_embarques").insert({
-                        "num_invoice": selected_inv_hist,
-                        "tipo_pago": "Pago a Fábrica",
-                        "banco": "CIERRE HISTÓRICO / SINC. DEUDA",
-                        "monto": saldo_pend_hist,
-                        "fecha_pago": str(date.today()),
-                        "referencia": "PAGO_HISTORICO_OK",
-                        "path_comprobante": None
-                    }).execute()
-                    
-                    res_c = supabase.table("embarques").select("estatus").eq("num_invoice", selected_inv_hist).execute()
-                    if res_c.data and res_c.data[0]['estatus'] == "Pendiente Pago":
-                        supabase.table("embarques").update({"estatus": "En Producción"}).eq("num_invoice", selected_inv_hist).execute()
-                        st.info("ℹ️ **Estatus Actualizado:** El embarque cambió automáticamente a **'En Producción'**.")
-
-                    st.success(f"🎉 ¡Factura {selected_inv_hist} marcada como totalmente pagada con éxito!")
-                    st.rerun()
+                btn_saldar_submit = st.form_submit_button("✅ Marcar Factura como Totalmente Pagada", type="primary", use_container_width=True)
+                
+                if btn_saldar_submit:
+                    monto_a_registrar = monto_saldar_input if monto_saldar_input > 0 else saldo_pend_hist
+                    if monto_a_registrar <= 0:
+                        st.warning("⚠️ Especifique un monto mayor a 0 para saldar.")
+                    else:
+                        supabase.table("pagos_embarques").insert({
+                            "num_invoice": selected_inv_hist,
+                            "tipo_pago": "Pago a Fábrica",
+                            "banco": "CIERRE HISTÓRICO / SINC. DEUDA",
+                            "monto": monto_a_registrar,
+                            "fecha_pago": str(date.today()),
+                            "referencia": ref_saldar_input,
+                            "path_comprobante": None
+                        }).execute()
+                        
+                        res_c = supabase.table("embarques").select("estatus").eq("num_invoice", selected_inv_hist).execute()
+                        if res_c.data and res_c.data[0]['estatus'] == "Pendiente Pago":
+                            supabase.table("embarques").update({"estatus": "En Producción"}).eq("num_invoice", selected_inv_hist).execute()
+                        
+                        st.success(f"🎉 ¡Factura {selected_inv_hist} saldada exitosamente por ${monto_a_registrar:,.2f} USD!")
+                        st.rerun()
 
         # TAB 3: EDITAR / ELIMINAR PAGOS EXISTENTES
         with tab_editar:
@@ -1065,7 +1080,7 @@ elif "Pagos Internacionales" in menu:
                     if not num_ref_edit or monto_pago_edit <= 0:
                         st.error("❌ El monto debe ser mayor a 0 y la referencia no puede estar vacía.")
                     else:
-                        new_path = upload_file_to_supabase(file_comp_edit, f"{pago_row['num_invoice']}_{num_ref_edit}", "COMP", bucket="comprobantes") or clean_url(pago_row.get('path_comprobante'))
+                        new_path = upload_file_to_supabase(file_comp_edit, f"{pago_row['num_invoice']}_{num_ref_edit}", "COMP", bucket="comprobantes") if file_comp_edit else clean_url(pago_row.get('path_comprobante'))
                         supabase.table("pagos_embarques").update({
                             "tipo_pago": tipo_pago_edit, "banco": banco_pago_edit, "monto": monto_pago_edit,
                             "fecha_pago": str(fecha_pago_edit), "referencia": num_ref_edit, "path_comprobante": new_path
@@ -1270,19 +1285,22 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
 
             submit_edit = st.form_submit_button("💾 Guardar Cambios en Supabase")
             if submit_edit:
-                p_pack = upload_file_to_supabase(new_file_packing, selected_invoice, "PACK") or clean_url(row.get('path_packing'))
-                p_inv = upload_file_to_supabase(new_file_invoice, selected_invoice, "INV") or clean_url(row.get('path_invoice'))
-                p_fle = upload_file_to_supabase(new_file_flete, selected_invoice, "FLE") or clean_url(row.get('path_flete'))
-                p_bl = upload_file_to_supabase(new_file_bl, selected_invoice, "BL") or clean_url(row.get('path_bl'))
+                p_pack = upload_file_to_supabase(new_file_packing, selected_invoice, "PACK") if new_file_packing else clean_url(row.get('path_packing'))
+                p_inv = upload_file_to_supabase(new_file_invoice, selected_invoice, "INV") if new_file_invoice else clean_url(row.get('path_invoice'))
+                p_fle = upload_file_to_supabase(new_file_flete, selected_invoice, "FLE") if new_file_flete else clean_url(row.get('path_flete'))
+                p_bl = upload_file_to_supabase(new_file_bl, selected_invoice, "BL") if new_file_bl else clean_url(row.get('path_bl'))
                 
-                supabase.table("embarques").update({
-                    "origen": origen_edit, "destino": destino_edit, "fabricante": fabricante_edit,
-                    "agente_carga": agente_carga_edit, "agente_aduanas": agente_aduanas_edit,
-                    "consignatario": consignatario_edit, "producto": producto_edit, "num_bl": num_bl_edit,
-                    "naviera": naviera_edit, "num_contenedor": num_contenedor_edit, "eta": str(eta_edit),
-                    "estatus": estatus_edit, "path_packing": p_pack, "path_invoice": p_inv,
-                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit
-                }).eq("num_invoice", selected_invoice).execute()
-                
-                st.success(f"✅ Embarque Invoice {selected_invoice} actualizado correctamente en Supabase.")
-                st.rerun()
+                try:
+                    supabase.table("embarques").update({
+                        "origen": origen_edit, "destino": destino_edit, "fabricante": fabricante_edit,
+                        "agente_carga": agente_carga_edit, "agente_aduanas": agente_aduanas_edit,
+                        "consignatario": consignatario_edit, "producto": producto_edit, "num_bl": num_bl_edit,
+                        "naviera": naviera_edit, "num_contenedor": num_contenedor_edit, "eta": str(eta_edit),
+                        "estatus": estatus_edit, "path_packing": p_pack, "path_invoice": p_inv,
+                        "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit
+                    }).eq("num_invoice", selected_invoice).execute()
+                    
+                    st.success(f"✅ Embarque Invoice {selected_invoice} actualizado correctamente en Supabase.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al guardar cambios en Supabase: {e}")
