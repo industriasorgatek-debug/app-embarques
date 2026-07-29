@@ -137,6 +137,12 @@ def clean_url(val):
         return None
     return str(val).strip()
 
+def ensure_bucket_exists(bucket_name="documentos"):
+    try:
+        supabase.storage.create_bucket(bucket_name, options={"public": True})
+    except Exception:
+        pass
+
 def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
     if file_obj is None:
         return None
@@ -149,6 +155,9 @@ def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
         file_bytes = file_obj.getvalue()
         content_type = file_obj.type or "application/octet-stream"
         
+        # Intentar asegurar la existencia del bucket en Supabase
+        ensure_bucket_exists(bucket)
+        
         supabase.storage.from_(bucket).upload(
             path=storage_path, 
             file=file_bytes, 
@@ -156,15 +165,21 @@ def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
         )
         return supabase.storage.from_(bucket).get_public_url(storage_path)
     except Exception as e:
-        try:
-            supabase.storage.from_(bucket).update(
-                path=storage_path,
-                file=file_bytes,
-                file_options={"content-type": content_type}
-            )
-            return supabase.storage.from_(bucket).get_public_url(storage_path)
-        except Exception as e2:
-            st.error(f"🚨 Error en Supabase Storage al subir '{file_obj.name}': {e2}")
+        err_msg = str(e)
+        if "Bucket not found" in err_msg:
+            try:
+                supabase.storage.create_bucket(bucket, options={"public": True})
+                supabase.storage.from_(bucket).upload(
+                    path=storage_path, 
+                    file=file_bytes, 
+                    file_options={"content-type": content_type}
+                )
+                return supabase.storage.from_(bucket).get_public_url(storage_path)
+            except Exception as e2:
+                st.error(f"🚨 El bucket '{bucket}' no existe en tu Supabase. Créalo en el panel (Storage -> New Bucket -> Nombre: '{bucket}' y Activa 'Public bucket'). Error: {e2}")
+                return None
+        else:
+            st.error(f"🚨 Error al subir archivo '{file_obj.name}': {e}")
             return None
 
 def safe_parse_date(val):
