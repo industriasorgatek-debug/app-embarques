@@ -109,9 +109,9 @@ modo_mantenimiento_activo = get_maintenance_mode()
 if modo_mantenimiento_activo and st.session_state.user_role != "admin":
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("<h1 style='text-align: center; color: #EAB308;'>🛠️ SISTEMA EN MANTENIMIENTO</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center; color: gray;'>Plataforma en actualización programada por el Departamento de Compras.</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center; color: gray;'>Plataforma en actualización programada.</h3>", unsafe_allow_html=True)
     
-    st.warning("ℹ️ **Acceso Pausado:** Para garantizar la integridad de los datos, el acceso para Almacén y Administración ha sido suspendido temporalmente. Por favor reintente más tarde.")
+    st.warning("ℹ️ **Acceso Pausado:** Por favor reintente más tarde.")
     
     # Opción de desbloqueo exclusivo para Compras durante Mantenimiento
     with st.expander("🔑 Acceso Administrador (Solo Compras)"):
