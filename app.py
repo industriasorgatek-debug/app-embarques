@@ -524,17 +524,11 @@ if menu == "📋 Control de Embarques":
 
         df_filtered = df.copy()
 
-        # -------------------------------------------------------------
         # 🗓️ ORDENAR POR FECHA DE ETA (CRONOLÓGICO)
-        # -------------------------------------------------------------
         df_filtered['eta_dt'] = pd.to_datetime(df_filtered['eta'], errors='coerce')
         df_filtered = df_filtered.sort_values(by='eta_dt', ascending=True, na_position='last')
 
-        # -------------------------------------------------------------
-        # 🙈 OCULTAR "ENTREGADO" POR DEFECTO (REDUCIR RUIDO VISUAL)
-        # Se ocultan si el filtro es "Todos" y no hay búsqueda activa.
-        # Se muestran si se selecciona "Entregado" en el filtro o si se busca explícitamente.
-        # -------------------------------------------------------------
+        # 🙈 OCULTAR "ENTREGADO" POR DEFECTO SI NO HAY BÚSQUEDA NI FILTRO EXPLÍCITO
         if filtro_estatus == "Todos" and not search_term.strip():
             df_filtered = df_filtered[df_filtered['estatus'] != 'Entregado']
         elif filtro_estatus != "Todos":
@@ -596,306 +590,313 @@ if menu == "📋 Control de Embarques":
                 key="tabla_interactiva"
             )
 
+            # -------------------------------------------------------------
+            # 🛡️ VALIDACIÓN ANTI-INDEXERROR
+            # -------------------------------------------------------------
             selected_rows = event.selection.get("rows", [])
             if selected_rows:
                 row_idx = selected_rows[0]
-                selected_invoice = df_display.iloc[row_idx]['N° Invoice']
-                row_data = df[df['num_invoice'] == selected_invoice].iloc[0]
-
-                st.markdown("---")
-                st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
-
-                render_timeline(row_data['estatus'])
-
-                eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
-                if eta_type == "error": st.error(eta_msg)
-                elif eta_type == "warning": st.warning(eta_msg)
-                elif eta_type == "success": st.success(eta_msg)
-                else: st.info(eta_msg)
-
-                # TRACKING DIRECTO
-                st.markdown("##### 📡 Rastreo de Carga en Tiempo Real")
-                url_track, label_track, info_ref = get_tracking_info(row_data['naviera'], row_data['num_contenedor'], row_data['num_bl'])
-                c_track1, c_track2 = st.columns([3, 1])
-                with c_track1: st.caption(f"Línea Naviera: **{row_data['naviera'] or 'No especificada'}** | {info_ref}")
-                with c_track2:
-                    if url_track: st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
-                    else: st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
-
-                # =============================================================
-                # 📝 MÓDULO DE NOTAS / BITÁCORA
-                # =============================================================
-                if role in ["admin", "almacen"]:
-                    st.markdown("---")
-                    st.subheader("📝 Bitácora de Notas y Comentarios")
-                    st.caption("Espacio exclusivo para Compras y Almacén para registrar observaciones de la carga.")
-
-                    with st.form(key=f"form_nota_{selected_invoice}", clear_on_submit=True):
-                        nuevo_comentario = st.text_area(
-                            "Agregar comentario / novedad corta:",
-                            placeholder="Ej: Contenedor recibido con empaque levemente dañado en paleta 3...",
-                            max_chars=400,
-                            height=80
-                        )
-                        btn_guardar_nota = st.form_submit_button("💬 Guardar Nota", type="primary")
-
-                        if btn_guardar_nota:
-                            if not nuevo_comentario.strip():
-                                st.warning("⚠️ Escriba un comentario antes de guardar.")
-                            else:
-                                fecha_hora_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
-                                supabase.table("notas_embarque").insert({
-                                    "num_invoice": selected_invoice,
-                                    "usuario": st.session_state.user_dept,
-                                    "rol": role,
-                                    "comentario": nuevo_comentario.strip(),
-                                    "fecha_hora": fecha_hora_actual
-                                }).execute()
-                                st.success("✅ Comentario registrado exitosamente en la nube.")
-                                st.rerun()
-
-                    res_notas = supabase.table("notas_embarque").select("*").eq("num_invoice", selected_invoice).order("id", desc=True).execute()
-                    df_notas = pd.DataFrame(res_notas.data) if res_notas.data else pd.DataFrame()
-
-                    if not df_notas.empty:
-                        st.markdown("##### 📜 Historial de Observaciones:")
-                        for _, n_row in df_notas.iterrows():
-                            badge = "🛒 Compras" if n_row['rol'] == 'admin' else "📦 Almacén"
-                            st.info(f"**{badge} ({n_row['usuario']})** — `{n_row['fecha_hora']}`\n\n💬 {n_row['comentario']}")
-                    else:
-                        st.caption("ℹ️ No hay observaciones registradas para esta carga aún.")
-
-                st.divider()
-
-                # =============================================================
-                # 1. ROL ALMACÉN
-                # =============================================================
-                if role == "almacen":
-                    st.subheader("📦 Módulo de Gestión de Almacén")
+                if 0 <= row_idx < len(df_display):
+                    selected_invoice = df_display.iloc[row_idx]['N° Invoice']
+                    row_matches = df[df['num_invoice'] == selected_invoice]
                     
-                    p_pack = clean_url(row_data.get('path_packing'))
-                    if p_pack and p_pack.startswith('http'):
-                        st.link_button(f"⬇️ Ver / Descargar Packing List ({selected_invoice})", p_pack, type="primary", use_container_width=True)
-                    else:
-                        st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
+                    if not row_matches.empty:
+                        row_data = row_matches.iloc[0]
 
-                    if row_data['estatus'] == "En Aduanas":
                         st.markdown("---")
-                        st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado' al recibirlo en almacén.")
-                        if st.button("✅ Marcar como ENTREGADO", type="primary"):
-                            supabase.table("embarques").update({"estatus": "Entregado"}).eq("num_invoice", selected_invoice).execute()
-                            st.success("¡Estatus actualizado a 'Entregado' con éxito!")
-                            st.rerun()
+                        st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
-                    st.markdown("---")
-                    if row_data['estatus'] == "Entregado":
-                        st.subheader("📸 Cargar Fotos / Reporte de Descarga")
-                        with st.form(f"form_almacen_upload_{selected_invoice}"):
-                            uploaded_descarga_files = st.file_uploader(
-                                "Subir Fotos o Reporte de Descarga", 
-                                accept_multiple_files=True,
-                                key=f"upload_almacen_files_{selected_invoice}"
-                            )
-                            sub_almacen = st.form_submit_button("📤 Subir Fotos a la Nube", type="primary")
-                            if sub_almacen and uploaded_descarga_files:
-                                for f_up in uploaded_descarga_files:
-                                    f_url = upload_file_to_supabase(f_up, selected_invoice, "FOTO", bucket="documentos")
-                                    supabase.table("documentos_embarque").insert({
-                                        "num_invoice": selected_invoice,
-                                        "tipo_documento": "Fotos de Descarga",
-                                        "nombre_archivo": f_up.name,
-                                        "path_archivo": f_url,
-                                        "fecha_subida": str(date.today()),
-                                        "subido_por": "Almacén"
-                                    }).execute()
-                                st.success("✅ Fotos guardadas en Supabase Storage exitosamente.")
-                                st.rerun()
-                    else:
-                        st.info("🔒 **Carga de Fotos Inactiva:** Se habilitará cuando el embarque esté en estatus **'Entregado'**.")
+                        render_timeline(row_data['estatus'])
 
-                    res_fotos = supabase.table("documentos_embarque").select("*").eq("num_invoice", selected_invoice).eq("tipo_documento", "Fotos de Descarga").execute()
-                    df_fotos_almacen = pd.DataFrame(res_fotos.data) if res_fotos.data else pd.DataFrame()
+                        eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
+                        if eta_type == "error": st.error(eta_msg)
+                        elif eta_type == "warning": st.warning(eta_msg)
+                        elif eta_type == "success": st.success(eta_msg)
+                        else: st.info(eta_msg)
 
-                    if not df_fotos_almacen.empty:
-                        st.markdown("##### 📸 Fotos y Reportes de Descarga Registrados:")
-                        for idx_f, f_row in df_fotos_almacen.iterrows():
-                            c_f1, c_f2, c_f3 = st.columns([3, 2, 1])
-                            c_f1.write(f"📄 {f_row['nombre_archivo']}")
-                            c_f2.caption(f"📅 {f_row['fecha_subida']}")
-                            with c_f3:
-                                path_foto = clean_url(f_row['path_archivo'])
-                                if path_foto:
-                                    st.link_button("⬇️ Ver Foto", path_foto, use_container_width=True)
+                        # TRACKING DIRECTO
+                        st.markdown("##### 📡 Rastreo de Carga en Tiempo Real")
+                        url_track, label_track, info_ref = get_tracking_info(row_data['naviera'], row_data['num_contenedor'], row_data['num_bl'])
+                        c_track1, c_track2 = st.columns([3, 1])
+                        with c_track1: st.caption(f"Línea Naviera: **{row_data['naviera'] or 'No especificada'}** | {info_ref}")
+                        with c_track2:
+                            if url_track: st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
+                            else: st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
 
-                # =============================================================
-                # 2. ROL ADMINISTRACIÓN
-                # =============================================================
-                elif role == "admon":
-                    st.subheader("💼 Expediente Digital del Embarque")
-                    docs_principales = [
-                        ("Packing List", row_data.get('path_packing')),
-                        ("Factura Comercial (Invoice)", row_data.get('path_invoice')),
-                        ("Factura de Flete", row_data.get('path_flete')),
-                        ("Bill of Lading (BL)", row_data.get('path_bl'))
-                    ]
-                    col_d1, col_d2 = st.columns(2)
-                    for idx, (label, url) in enumerate(docs_principales):
-                        col_target = col_d1 if idx % 2 == 0 else col_d2
-                        url_clean = clean_url(url)
-                        with col_target:
-                            if url_clean and url_clean.startswith('http'):
-                                st.link_button(f"⬇️ Ver {label}", url_clean, use_container_width=True)
-                            else:
-                                st.caption(f"❌ {label}: No cargado")
+                        # =============================================================
+                        # 📝 MÓDULO DE NOTAS / BITÁCORA
+                        # =============================================================
+                        if role in ["admin", "almacen"]:
+                            st.markdown("---")
+                            st.subheader("📝 Bitácora de Notas y Comentarios")
+                            st.caption("Espacio exclusivo para Compras y Almacén para registrar observaciones de la carga.")
 
-                # =============================================================
-                # 3. ROL COMPRAS (ADMINISTRADOR)
-                # =============================================================
-                elif role == "admin":
-                    es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
-                    tiene_pago_ff = selected_invoice in invoices_con_pago_ff
-                    if not es_omito_flete and not tiene_pago_ff:
-                        st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
-                    elif tiene_pago_ff:
-                        st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
+                            with st.form(key=f"form_nota_{selected_invoice}", clear_on_submit=True):
+                                nuevo_comentario = st.text_area(
+                                    "Agregar comentario / novedad corta:",
+                                    placeholder="Ej: Contenedor recibido con empaque levemente dañado en paleta 3...",
+                                    max_chars=400,
+                                    height=80
+                                )
+                                btn_guardar_nota = st.form_submit_button("💬 Guardar Nota", type="primary")
 
-                    st.subheader("💼 Expediente Digital del Embarque (Documentos Principales)")
-                    docs_principales = [
-                        ("Packing List", row_data.get('path_packing')),
-                        ("Factura Comercial (Invoice)", row_data.get('path_invoice')),
-                        ("Factura de Flete", row_data.get('path_flete')),
-                        ("Bill of Lading (BL)", row_data.get('path_bl'))
-                    ]
-                    col_d1, col_d2 = st.columns(2)
-                    for idx, (label, url) in enumerate(docs_principales):
-                        col_target = col_d1 if idx % 2 == 0 else col_d2
-                        url_clean = clean_url(url)
-                        with col_target:
-                            if url_clean and url_clean.startswith('http'):
-                                st.link_button(f"⬇️ Ver {label}", url_clean, use_container_width=True)
-                            else:
-                                st.caption(f"❌ {label}: No cargado")
-
-                    st.markdown("---")
-                    
-                    # Expediente Anexo
-                    res_anx = supabase.table("documentos_embarque").select("*").eq("num_invoice", selected_invoice).execute()
-                    df_extra_docs = pd.DataFrame(res_anx.data) if res_anx.data else pd.DataFrame()
-                    cant_anexos = len(df_extra_docs)
-                    
-                    with st.expander(f"📁 **Expediente Anexo y Documentación Adicional** ({cant_anexos} archivo(s) cargado(s))", expanded=False):
-                        st.markdown("##### ➕ Adjuntar Nuevos Documentos")
-                        with st.form(f"form_extra_docs_{selected_invoice}"):
-                            c_exp1, c_exp2 = st.columns(2)
-                            with c_exp1:
-                                tipo_doc_sel = st.selectbox("Tipo / Categoría de Documento *", TIPOS_DOCS_COMPRAS, key=f"sel_tipo_doc_{selected_invoice}")
-                            with c_exp2:
-                                extra_files = st.file_uploader("Seleccionar Archivo(s) *", accept_multiple_files=True, key=f"uploader_extra_{selected_invoice}")
-
-                            btn_subir_extra = st.form_submit_button("📤 Guardar Documentos en la Nube", type="primary", use_container_width=True)
-
-                            if btn_subir_extra:
-                                if not extra_files:
-                                    st.error("❌ Debe seleccionar al menos un archivo.")
-                                else:
-                                    for ef in extra_files:
-                                        e_url = upload_file_to_supabase(ef, selected_invoice, "ANX", bucket="documentos")
-                                        supabase.table("documentos_embarque").insert({
+                                if btn_guardar_nota:
+                                    if not nuevo_comentario.strip():
+                                        st.warning("⚠️ Escriba un comentario antes de guardar.")
+                                    else:
+                                        fecha_hora_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
+                                        supabase.table("notas_embarque").insert({
                                             "num_invoice": selected_invoice,
-                                            "tipo_documento": tipo_doc_sel,
-                                            "nombre_archivo": ef.name,
-                                            "path_archivo": e_url,
-                                            "fecha_subida": str(date.today()),
-                                            "subido_por": st.session_state.user_dept
+                                            "usuario": st.session_state.user_dept,
+                                            "rol": role,
+                                            "comentario": nuevo_comentario.strip(),
+                                            "fecha_hora": fecha_hora_actual
                                         }).execute()
-                                    st.success(f"✅ ¡{len(extra_files)} documento(s) adjuntado(s) exitosamente en Supabase!")
-                                    st.rerun()
+                                        st.success("✅ Comentario registrado exitosamente en la nube.")
+                                        st.rerun()
+
+                            res_notas = supabase.table("notas_embarque").select("*").eq("num_invoice", selected_invoice).order("id", desc=True).execute()
+                            df_notas = pd.DataFrame(res_notas.data) if res_notas.data else pd.DataFrame()
+
+                            if not df_notas.empty:
+                                st.markdown("##### 📜 Historial de Observaciones:")
+                                for _, n_row in df_notas.iterrows():
+                                    badge = "🛒 Compras" if n_row['rol'] == 'admin' else "📦 Almacén"
+                                    st.info(f"**{badge} ({n_row['usuario']})** — `{n_row['fecha_hora']}`\n\n💬 {n_row['comentario']}")
+                            else:
+                                st.caption("ℹ️ No hay observaciones registradas para esta carga aún.")
 
                         st.divider()
 
-                        if not df_extra_docs.empty:
-                            st.markdown("##### 📄 Archivos Anexos Registrados en este Embarque:")
-                            for idx_doc, doc_row in df_extra_docs.iterrows():
-                                c_doc1, c_doc2, c_doc3, c_doc4 = st.columns([2, 3, 2, 1])
-                                c_doc1.write(f"🏷️ **{doc_row['tipo_documento']}**")
-                                c_doc2.write(f"📄 {doc_row['nombre_archivo']}")
-                                c_doc3.caption(f"📅 {doc_row['fecha_subida']} ({doc_row['subido_por']})")
-                                
-                                path_anx = clean_url(doc_row['path_archivo'])
-                                with c_doc4:
-                                    if path_anx:
-                                        st.link_button("⬇️ Abrir", path_anx, use_container_width=True)
-                                    
-                                    if st.button("🗑️", key=f"del_extra_{doc_row['id']}", help="Eliminar este archivo"):
-                                        supabase.table("documentos_embarque").delete().eq("id", doc_row['id']).execute()
-                                        st.success("Documento eliminado.")
-                                        st.rerun()
-                                st.divider()
-                        else:
-                            st.info("No hay documentos anexos adjuntados para este embarque aún.")
-
-                        st.markdown("##### 📦 Descarga Masiva del Expediente")
-                        zip_buffer = generar_zip_expediente(selected_invoice, row_data)
-                        st.download_button(
-                            label=f"📦 Descargar Expediente COMPLETO en .ZIP ({selected_invoice})",
-                            data=zip_buffer,
-                            file_name=f"Expediente_Completo_{selected_invoice}.zip",
-                            mime="application/zip",
-                            type="primary",
-                            use_container_width=True,
-                            key=f"btn_zip_{selected_invoice}"
-                        )
-
-                    # BALANCE FINANCIERO FÁBRICA
-                    st.markdown("---")
-                    st.subheader(f"💰 Balance Financiero de Fábrica ({selected_invoice})")
-                    res_p_emb = supabase.table("pagos_embarques").select("*").eq("num_invoice", selected_invoice).execute()
-                    df_pagos_emb = pd.DataFrame(res_p_emb.data) if res_p_emb.data else pd.DataFrame()
-                    
-                    df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
-                    
-                    monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
-                    monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
-                    saldo_pendiente = max(0.0, monto_factura - monto_total_pagado_fabrica)
-
-                    m1, m2 = st.columns(2)
-                    m1.metric("Monto Total Factura (Fábrica)", f"${monto_factura:,.2f} USD")
-                    m2.metric("Total Abonado a Fábrica", f"${monto_total_pagado_fabrica:,.2f} USD")
-                    
-                    if saldo_pendiente <= 0 and monto_factura > 0:
-                        st.success("🟢 **Saldo Pendiente Fábrica:** $0.00 USD — ¡PAGADO COMPLETAMENTE!")
-                    elif saldo_pendiente > 0:
-                        st.error(f"🔴 **Saldo Pendiente por Pagar a Fábrica:** ${saldo_pendiente:,.2f} USD")
-                    else:
-                        st.info("⚪ **Saldo Pendiente por Pagar a Fábrica:** $0.00 USD")
-
-                    st.markdown("---")
-                    if df_pagos_emb.empty:
-                        st.info("No se han registrado pagos o abonos para este embarque.")
-                    else:
-                        st.markdown("##### 📄 Historial de Pagos y Comprobantes Registrados:")
-                        for idx, p_row in df_pagos_emb.iterrows():
-                            c_p1, c_p2, c_p3, c_p4 = st.columns([2, 2, 2, 2])
-                            badge = "🏭" if p_row['tipo_pago'] == 'Pago a Fábrica' else "🚢"
-                            c_p1.write(f"**Tipo:** {badge} {p_row['tipo_pago']}")
-                            c_p2.write(f"**Banco:** {p_row['banco']}")
-                            c_p3.write(f"**Monto:** ${p_row['monto']:,.2f} USD")
-                            c_p4.write(f"**Ref:** {p_row['referencia']} ({p_row['fecha_pago']})")
+                        # =============================================================
+                        # 1. ROL ALMACÉN
+                        # =============================================================
+                        if role == "almacen":
+                            st.subheader("📦 Módulo de Gestión de Almacén")
                             
-                            path_comp = clean_url(p_row.get('path_comprobante'))
-                            if path_comp:
-                                st.link_button(f"📄 Ver Comprobante #{p_row['referencia']}", path_comp, use_container_width=True)
-                            st.divider()
+                            p_pack = clean_url(row_data.get('path_packing'))
+                            if p_pack and p_pack.startswith('http'):
+                                st.link_button(f"⬇️ Ver / Descargar Packing List ({selected_invoice})", p_pack, type="primary", use_container_width=True)
+                            else:
+                                st.warning("⚠️ No se ha adjuntado el Packing List para esta Invoice aún.")
 
-                    st.markdown("---")
-                    col_b1, col_b2 = st.columns(2)
-                    with col_b1:
-                        if st.button(f"✏️ Desplegar Edición Rápida ({selected_invoice})", type="primary", use_container_width=True):
-                            st.session_state.editing_invoice = selected_invoice
+                            if row_data['estatus'] == "En Aduanas":
+                                st.markdown("---")
+                                st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado' al recibirlo en almacén.")
+                                if st.button("✅ Marcar como ENTREGADO", type="primary"):
+                                    supabase.table("embarques").update({"estatus": "Entregado"}).eq("num_invoice", selected_invoice).execute()
+                                    st.success("¡Estatus actualizado a 'Entregado' con éxito!")
+                                    st.rerun()
 
-                    with col_b2:
-                        pdf_data = generar_pdf_embarque(row_data, df_pagos_emb)
-                        st.download_button(label=f"📄 Imprimir Ficha PDF ({selected_invoice})", data=pdf_data, file_name=f"Ficha_Embarque_{selected_invoice}.pdf", mime="application/pdf", type="secondary", use_container_width=True, key=f"btn_pdf_{selected_invoice}")
+                            st.markdown("---")
+                            if row_data['estatus'] == "Entregado":
+                                st.subheader("📸 Cargar Fotos / Reporte de Descarga")
+                                with st.form(f"form_almacen_upload_{selected_invoice}"):
+                                    uploaded_descarga_files = st.file_uploader(
+                                        "Subir Fotos o Reporte de Descarga", 
+                                        accept_multiple_files=True,
+                                        key=f"upload_almacen_files_{selected_invoice}"
+                                    )
+                                    sub_almacen = st.form_submit_button("📤 Subir Fotos a la Nube", type="primary")
+                                    if sub_almacen and uploaded_descarga_files:
+                                        for f_up in uploaded_descarga_files:
+                                            f_url = upload_file_to_supabase(f_up, selected_invoice, "FOTO", bucket="documentos")
+                                            supabase.table("documentos_embarque").insert({
+                                                "num_invoice": selected_invoice,
+                                                "tipo_documento": "Fotos de Descarga",
+                                                "nombre_archivo": f_up.name,
+                                                "path_archivo": f_url,
+                                                "fecha_subida": str(date.today()),
+                                                "subido_por": "Almacén"
+                                            }).execute()
+                                        st.success("✅ Fotos guardadas en Supabase Storage exitosamente.")
+                                        st.rerun()
+                            else:
+                                st.info("🔒 **Carga de Fotos Inactiva:** Se habilitará cuando el embarque esté en estatus **'Entregado'**.")
+
+                            res_fotos = supabase.table("documentos_embarque").select("*").eq("num_invoice", selected_invoice).eq("tipo_documento", "Fotos de Descarga").execute()
+                            df_fotos_almacen = pd.DataFrame(res_fotos.data) if res_fotos.data else pd.DataFrame()
+
+                            if not df_fotos_almacen.empty:
+                                st.markdown("##### 📸 Fotos y Reportes de Descarga Registrados:")
+                                for idx_f, f_row in df_fotos_almacen.iterrows():
+                                    c_f1, c_f2, c_f3 = st.columns([3, 2, 1])
+                                    c_f1.write(f"📄 {f_row['nombre_archivo']}")
+                                    c_f2.caption(f"📅 {f_row['fecha_subida']}")
+                                    with c_f3:
+                                        path_foto = clean_url(f_row['path_archivo'])
+                                        if path_foto:
+                                            st.link_button("⬇️ Ver Foto", path_foto, use_container_width=True)
+
+                        # =============================================================
+                        # 2. ROL ADMINISTRACIÓN
+                        # =============================================================
+                        elif role == "admon":
+                            st.subheader("💼 Expediente Digital del Embarque")
+                            docs_principales = [
+                                ("Packing List", row_data.get('path_packing')),
+                                ("Factura Comercial (Invoice)", row_data.get('path_invoice')),
+                                ("Factura de Flete", row_data.get('path_flete')),
+                                ("Bill of Lading (BL)", row_data.get('path_bl'))
+                            ]
+                            col_d1, col_d2 = st.columns(2)
+                            for idx, (label, url) in enumerate(docs_principales):
+                                col_target = col_d1 if idx % 2 == 0 else col_d2
+                                url_clean = clean_url(url)
+                                with col_target:
+                                    if url_clean and url_clean.startswith('http'):
+                                        st.link_button(f"⬇️ Ver {label}", url_clean, use_container_width=True)
+                                    else:
+                                        st.caption(f"❌ {label}: No cargado")
+
+                        # =============================================================
+                        # 3. ROL COMPRAS (ADMINISTRADOR)
+                        # =============================================================
+                        elif role == "admin":
+                            es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
+                            tiene_pago_ff = selected_invoice in invoices_con_pago_ff
+                            if not es_omito_flete and not tiene_pago_ff:
+                                st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
+                            elif tiene_pago_ff:
+                                st.success("🟢 **Flete Registrado:** El pago al Freight Forwarder ya fue registrado correctamente.")
+
+                            st.subheader("💼 Expediente Digital del Embarque (Documentos Principales)")
+                            docs_principales = [
+                                ("Packing List", row_data.get('path_packing')),
+                                ("Factura Comercial (Invoice)", row_data.get('path_invoice')),
+                                ("Factura de Flete", row_data.get('path_flete')),
+                                ("Bill of Lading (BL)", row_data.get('path_bl'))
+                            ]
+                            col_d1, col_d2 = st.columns(2)
+                            for idx, (label, url) in enumerate(docs_principales):
+                                col_target = col_d1 if idx % 2 == 0 else col_d2
+                                url_clean = clean_url(url)
+                                with col_target:
+                                    if url_clean and url_clean.startswith('http'):
+                                        st.link_button(f"⬇️ Ver {label}", url_clean, use_container_width=True)
+                                    else:
+                                        st.caption(f"❌ {label}: No cargado")
+
+                            st.markdown("---")
+                            
+                            # Expediente Anexo
+                            res_anx = supabase.table("documentos_embarque").select("*").eq("num_invoice", selected_invoice).execute()
+                            df_extra_docs = pd.DataFrame(res_anx.data) if res_anx.data else pd.DataFrame()
+                            cant_anexos = len(df_extra_docs)
+                            
+                            with st.expander(f"📁 **Expediente Anexo y Documentación Adicional** ({cant_anexos} archivo(s) cargado(s))", expanded=False):
+                                st.markdown("##### ➕ Adjuntar Nuevos Documentos")
+                                with st.form(f"form_extra_docs_{selected_invoice}"):
+                                    c_exp1, c_exp2 = st.columns(2)
+                                    with c_exp1:
+                                        tipo_doc_sel = st.selectbox("Tipo / Categoría de Documento *", TIPOS_DOCS_COMPRAS, key=f"sel_tipo_doc_{selected_invoice}")
+                                    with c_exp2:
+                                        extra_files = st.file_uploader("Seleccionar Archivo(s) *", accept_multiple_files=True, key=f"uploader_extra_{selected_invoice}")
+
+                                    btn_subir_extra = st.form_submit_button("📤 Guardar Documentos en la Nube", type="primary", use_container_width=True)
+
+                                    if btn_subir_extra:
+                                        if not extra_files:
+                                            st.error("❌ Debe seleccionar al menos un archivo.")
+                                        else:
+                                            for ef in extra_files:
+                                                e_url = upload_file_to_supabase(ef, selected_invoice, "ANX", bucket="documentos")
+                                                supabase.table("documentos_embarque").insert({
+                                                    "num_invoice": selected_invoice,
+                                                    "tipo_documento": tipo_doc_sel,
+                                                    "nombre_archivo": ef.name,
+                                                    "path_archivo": e_url,
+                                                    "fecha_subida": str(date.today()),
+                                                    "subido_por": st.session_state.user_dept
+                                                }).execute()
+                                            st.success(f"✅ ¡{len(extra_files)} documento(s) adjuntado(s) exitosamente en Supabase!")
+                                            st.rerun()
+
+                                st.divider()
+
+                                if not df_extra_docs.empty:
+                                    st.markdown("##### 📄 Archivos Anexos Registrados en este Embarque:")
+                                    for idx_doc, doc_row in df_extra_docs.iterrows():
+                                        c_doc1, c_doc2, c_doc3, c_doc4 = st.columns([2, 3, 2, 1])
+                                        c_doc1.write(f"🏷️ **{doc_row['tipo_documento']}**")
+                                        c_doc2.write(f"📄 {doc_row['nombre_archivo']}")
+                                        c_doc3.caption(f"📅 {doc_row['fecha_subida']} ({doc_row['subido_por']})")
+                                        
+                                        path_anx = clean_url(doc_row['path_archivo'])
+                                        with c_doc4:
+                                            if path_anx:
+                                                st.link_button("⬇️ Abrir", path_anx, use_container_width=True)
+                                            
+                                            if st.button("🗑️", key=f"del_extra_{doc_row['id']}", help="Eliminar este archivo"):
+                                                supabase.table("documentos_embarque").delete().eq("id", doc_row['id']).execute()
+                                                st.success("Documento eliminado.")
+                                                st.rerun()
+                                        st.divider()
+                                else:
+                                    st.info("No hay documentos anexos adjuntados para este embarque aún.")
+
+                                st.markdown("##### 📦 Descarga Masiva del Expediente")
+                                zip_buffer = generar_zip_expediente(selected_invoice, row_data)
+                                st.download_button(
+                                    label=f"📦 Descargar Expediente COMPLETO en .ZIP ({selected_invoice})",
+                                    data=zip_buffer,
+                                    file_name=f"Expediente_Completo_{selected_invoice}.zip",
+                                    mime="application/zip",
+                                    type="primary",
+                                    use_container_width=True,
+                                    key=f"btn_zip_{selected_invoice}"
+                                )
+
+                            # BALANCE FINANCIERO FÁBRICA
+                            st.markdown("---")
+                            st.subheader(f"💰 Balance Financiero de Fábrica ({selected_invoice})")
+                            res_p_emb = supabase.table("pagos_embarques").select("*").eq("num_invoice", selected_invoice).execute()
+                            df_pagos_emb = pd.DataFrame(res_p_emb.data) if res_p_emb.data else pd.DataFrame()
+                            
+                            df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
+                            
+                            monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
+                            monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
+                            saldo_pendiente = max(0.0, monto_factura - monto_total_pagado_fabrica)
+
+                            m1, m2 = st.columns(2)
+                            m1.metric("Monto Total Factura (Fábrica)", f"${monto_factura:,.2f} USD")
+                            m2.metric("Total Abonado a Fábrica", f"${monto_total_pagado_fabrica:,.2f} USD")
+                            
+                            if saldo_pendiente <= 0 and monto_factura > 0:
+                                st.success("🟢 **Saldo Pendiente Fábrica:** $0.00 USD — ¡PAGADO COMPLETAMENTE!")
+                            elif saldo_pendiente > 0:
+                                st.error(f"🔴 **Saldo Pendiente por Pagar a Fábrica:** ${saldo_pendiente:,.2f} USD")
+                            else:
+                                st.info("⚪ **Saldo Pendiente por Pagar a Fábrica:** $0.00 USD")
+
+                            st.markdown("---")
+                            if df_pagos_emb.empty:
+                                st.info("No se han registrado pagos o abonos para este embarque.")
+                            else:
+                                st.markdown("##### 📄 Historial de Pagos y Comprobantes Registrados:")
+                                for idx, p_row in df_pagos_emb.iterrows():
+                                    c_p1, c_p2, c_p3, c_p4 = st.columns([2, 2, 2, 2])
+                                    badge = "🏭" if p_row['tipo_pago'] == 'Pago a Fábrica' else "🚢"
+                                    c_p1.write(f"**Tipo:** {badge} {p_row['tipo_pago']}")
+                                    c_p2.write(f"**Banco:** {p_row['banco']}")
+                                    c_p3.write(f"**Monto:** ${p_row['monto']:,.2f} USD")
+                                    c_p4.write(f"**Ref:** {p_row['referencia']} ({p_row['fecha_pago']})")
+                                    
+                                    path_comp = clean_url(p_row.get('path_comprobante'))
+                                    if path_comp:
+                                        st.link_button(f"📄 Ver Comprobante #{p_row['referencia']}", path_comp, use_container_width=True)
+                                    st.divider()
+
+                            st.markdown("---")
+                            col_b1, col_b2 = st.columns(2)
+                            with col_b1:
+                                if st.button(f"✏️ Desplegar Edición Rápida ({selected_invoice})", type="primary", use_container_width=True):
+                                    st.session_state.editing_invoice = selected_invoice
+
+                            with col_b2:
+                                pdf_data = generar_pdf_embarque(row_data, df_pagos_emb)
+                                st.download_button(label=f"📄 Imprimir Ficha PDF ({selected_invoice})", data=pdf_data, file_name=f"Ficha_Embarque_{selected_invoice}.pdf", mime="application/pdf", type="secondary", use_container_width=True, key=f"btn_pdf_{selected_invoice}")
 
         # FORMULARIO DE EDICIÓN RÁPIDA
         if role == "admin" and st.session_state.editing_invoice:
