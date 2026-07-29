@@ -155,7 +155,6 @@ def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
         file_bytes = file_obj.getvalue()
         content_type = file_obj.type or "application/octet-stream"
         
-        # Intentar asegurar la existencia del bucket en Supabase
         ensure_bucket_exists(bucket)
         
         supabase.storage.from_(bucket).upload(
@@ -176,7 +175,7 @@ def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
                 )
                 return supabase.storage.from_(bucket).get_public_url(storage_path)
             except Exception as e2:
-                st.error(f"🚨 El bucket '{bucket}' no existe en tu Supabase. Créalo en el panel (Storage -> New Bucket -> Nombre: '{bucket}' y Activa 'Public bucket'). Error: {e2}")
+                st.error(f"🚨 El bucket '{bucket}' no existe en tu Supabase. Error: {e2}")
                 return None
         else:
             st.error(f"🚨 Error al subir archivo '{file_obj.name}': {e}")
@@ -525,6 +524,22 @@ if menu == "📋 Control de Embarques":
 
         df_filtered = df.copy()
 
+        # -------------------------------------------------------------
+        # 🗓️ ORDENAR POR FECHA DE ETA (CRONOLÓGICO)
+        # -------------------------------------------------------------
+        df_filtered['eta_dt'] = pd.to_datetime(df_filtered['eta'], errors='coerce')
+        df_filtered = df_filtered.sort_values(by='eta_dt', ascending=True, na_position='last')
+
+        # -------------------------------------------------------------
+        # 🙈 OCULTAR "ENTREGADO" POR DEFECTO (REDUCIR RUIDO VISUAL)
+        # Se ocultan si el filtro es "Todos" y no hay búsqueda activa.
+        # Se muestran si se selecciona "Entregado" en el filtro o si se busca explícitamente.
+        # -------------------------------------------------------------
+        if filtro_estatus == "Todos" and not search_term.strip():
+            df_filtered = df_filtered[df_filtered['estatus'] != 'Entregado']
+        elif filtro_estatus != "Todos":
+            df_filtered = df_filtered[df_filtered['estatus'] == filtro_estatus]
+
         if search_term:
             term = search_term.lower().strip()
             mask = (
@@ -532,11 +547,11 @@ if menu == "📋 Control de Embarques":
                 df_filtered['num_contenedor'].astype(str).str.lower().str.contains(term, na=False) |
                 df_filtered['num_bl'].astype(str).str.lower().str.contains(term, na=False) |
                 df_filtered['fabricante'].astype(str).str.lower().str.contains(term, na=False) |
-                df_filtered['producto'].astype(str).str.lower().str.contains(term, na=False)
+                df_filtered['producto'].astype(str).str.lower().str.contains(term, na=False) |
+                df_filtered['estatus'].astype(str).str.lower().str.contains(term, na=False)
             )
             df_filtered = df_filtered[mask]
 
-        if filtro_estatus != "Todos": df_filtered = df_filtered[df_filtered['estatus'] == filtro_estatus]
         if filtro_naviera != "Todas": df_filtered = df_filtered[df_filtered['naviera'] == filtro_naviera]
         if role == "admin" and filtro_flete != "Todos": df_filtered = df_filtered[df_filtered['pago_flete_status'] == filtro_flete]
 
