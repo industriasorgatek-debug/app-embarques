@@ -408,7 +408,8 @@ def generar_pdf_embarque(row_data, df_pagos):
             ])
         t_pagos = Table(table_data_pagos, colWidths=[120, 100, 90, 80, 130])
         t_pagos.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('TOPPADDING', (0,0), (-1,-1), 4),
             ('BOTTOMPADDING', (0,0), (-1,-1), 4),
@@ -890,8 +891,11 @@ if menu == "📋 Control de Embarques":
                                     st.session_state.editing_invoice = selected_invoice
 
                             with col_b2:
-                                pdf_data = generar_pdf_embarque(row_data, df_pagos_emb)
-                                st.download_button(label=f"📄 Imprimir Ficha PDF ({selected_invoice})", data=pdf_data, file_name=f"Ficha_Embarque_{selected_invoice}.pdf", mime="application/pdf", type="secondary", use_container_width=True, key=f"btn_pdf_{selected_invoice}")
+                                try:
+                                    pdf_data = generar_pdf_embarque(row_data, df_pagos_emb)
+                                    st.download_button(label=f"📄 Imprimir Ficha PDF ({selected_invoice})", data=pdf_data, file_name=f"Ficha_Embarque_{selected_invoice}.pdf", mime="application/pdf", type="secondary", use_container_width=True, key=f"btn_pdf_{selected_invoice}")
+                                except Exception as e_pdf:
+                                    st.error(f"⚠️ Error generando PDF: {e_pdf}")
 
                         # =============================================================
                         # 5. 💬 BITÁCORA DE COMENTARIOS Y NOVEDADES (VISIBLE PARA TODOS)
