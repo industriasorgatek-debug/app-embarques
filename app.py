@@ -101,6 +101,7 @@ if "user_role" not in st.session_state: st.session_state.user_role = None
 if "user_dept" not in st.session_state: st.session_state.user_dept = None
 if "editing_invoice" not in st.session_state: st.session_state.editing_invoice = None
 if "preselected_pago_invoice" not in st.session_state: st.session_state.preselected_pago_invoice = None
+if "pending_nav_menu" not in st.session_state: st.session_state.pending_nav_menu = None
 
 # COMPROBAR MODO MANTENIMIENTO GLOBAL
 modo_mantenimiento_activo = get_maintenance_mode()
@@ -455,6 +456,11 @@ if role == "admin":
 else:
     options = ["📋 Control de Embarques"]
 
+# Aplicar redirección pendiente de menú antes de crear el widget del sidebar
+if st.session_state.pending_nav_menu is not None:
+    st.session_state.nav_menu = st.session_state.pending_nav_menu
+    st.session_state.pending_nav_menu = None
+
 menu = st.sidebar.radio("Navegación", options, key="nav_menu")
 
 # -------------------------------------------------------------
@@ -481,6 +487,7 @@ if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
     st.session_state.user_dept = None
     st.session_state.editing_invoice = None
     st.session_state.preselected_pago_invoice = None
+    st.session_state.pending_nav_menu = None
     st.rerun()
 
 # BANNER DE ADVERTENCIA PARA COMPRAS SI MANTENIMIENTO ESTÁ ACTIVO
@@ -854,7 +861,7 @@ if menu == "📋 Control de Embarques":
                                     st.info("No se han registrado pagos o abonos para este embarque.")
                                     if st.button("💳 Registrar Pago para esta Invoice", type="primary", use_container_width=True, key=f"btn_pago_empty_{selected_invoice}"):
                                         st.session_state.preselected_pago_invoice = selected_invoice
-                                        st.session_state.nav_menu = "💳 Módulo de Pagos Internacionales"
+                                        st.session_state.pending_nav_menu = "💳 Módulo de Pagos Internacionales"
                                         st.rerun()
                                 else:
                                     for idx, p_row in df_pagos_emb.iterrows():
@@ -872,7 +879,7 @@ if menu == "📋 Control de Embarques":
 
                                     if st.button("➕ Registrar Nuevo Abono para esta Invoice", type="secondary", use_container_width=True, key=f"btn_pago_not_empty_{selected_invoice}"):
                                         st.session_state.preselected_pago_invoice = selected_invoice
-                                        st.session_state.nav_menu = "💳 Módulo de Pagos Internacionales"
+                                        st.session_state.pending_nav_menu = "💳 Módulo de Pagos Internacionales"
                                         st.rerun()
 
                         # Acciones Rápidas (Edición y PDF) para Compras
