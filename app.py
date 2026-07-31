@@ -448,6 +448,7 @@ role = st.session_state.user_role
 
 if role == "admin":
     options = [
+        "📊 Dashboard General",
         "📋 Control de Embarques", 
         "💳 Módulo de Pagos Internacionales",
         "📊 Carga Masiva (Excel/CSV)", 
@@ -455,7 +456,10 @@ if role == "admin":
         "✏️ Editar / Actualizar Embarque"
     ]
 else:
-    options = ["📋 Control de Embarques"]
+    options = [
+        "📊 Dashboard General",
+        "📋 Control de Embarques"
+    ]
 
 # Aplicar redirección pendiente de menú antes de crear el widget del sidebar
 if st.session_state.pending_nav_menu is not None:
@@ -495,8 +499,174 @@ if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
 if role == "admin" and modo_mantenimiento_activo:
     st.warning("🚨 **MODO MANTENIMIENTO ACTIVADO GLOBALMENTE:** Almacén y Administración tienen el acceso bloqueado hasta que desactives el interruptor en el menú lateral.")
 
-# --- VISTA 1: CONTROL DE EMBARQUES ---
-if menu == "📋 Control de Embarques":
+# =============================================================
+# VISTA 0: 📊 DASHBOARD GENERAL (ADAPTABLE POR ROL)
+# =============================================================
+if menu == "📊 Dashboard General":
+    st.title(f"📊 Dashboard de Control — {st.session_state.user_dept}")
+    st.caption("Visión analítica integrada en tiempo real basada en la información de Supabase")
+
+    res_emb = supabase.table("embarques").select("*").execute()
+    df_db = pd.DataFrame(res_emb.data) if res_emb.data else pd.DataFrame()
+
+    res_pag = supabase.table("pagos_embarques").select("*").execute()
+    df_pagos_db = pd.DataFrame(res_pag.data) if res_pag.data else pd.DataFrame()
+
+    res_doc = supabase.table("documentos_embarque").select("*").execute()
+    df_docs_db = pd.DataFrame(res_doc.data) if res_doc.data else pd.DataFrame()
+
+    if df_db.empty:
+        st.info("No hay datos registrados aún para generar indicadores en el Dashboard.")
+    else:
+        today = date.today()
+        df_db['eta_dt'] = pd.to_datetime(df_db['eta'], errors='coerce')
+        
+        # Filtros de cargas activas
+        df_activas = df_db[df_db['estatus'] != 'Entregado']
+        
+        # Arribos del mes actual (Entregadas o en curso)
+        df_db['eta_month_year'] = df_db['eta_dt'].dt.strftime('%m/%Y')
+        current_my = today.strftime('%m/%Y')
+        df_entregadas_mes = df_db[(df_db['estatus'] == 'Entregado') & (df_db['eta_month_year'] == current_my)]
+
+        # --- A) COMPRAS (ADMIN) ---
+        if role == "admin":
+            invoices_pago_ff = df_pagos_db[df_pagos_db['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_db.empty else []
+            
+            # Deuda Fábrica
+            monto_total_facturas = df_activas['monto_factura'].fillna(0).sum()
+            df_pagos_fab = df_pagos_db[df_pagos_db['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_db.empty else pd.DataFrame()
+            total_abonado_fab = df_pagos_fab['monto'].sum() if not df_pagos_fab.empty else 0.0
+            saldo_total_fabrica = max(0.0, monto_total_facturas - total_abonado_fab)
+
+            # Contadores de alertas
+            fletes_pendientes_cnt = len(df_activas[~df_activas['num_invoice'].isin(invoices_pago_ff) & (~df_activas['estatus'].isin(['Entregado', 'Pendiente Pago']))])
+            atrasadas_cnt = len(df_activas[(df_activas['eta_dt'].dt.date < today)])
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("🚢 Cargas Activas", len(df_activas))
+            m2.metric("🚨 Cargas Atrasadas", atrasadas_cnt)
+            m3.metric("💰 Capital Facturado", f"${monto_total_facturas:,.2f} USD")
+            m4.metric("🔴 Deuda Pendiente Fábricas", f"${saldo_total_fabrica:,.2f} USD")
+
+            st.markdown("---")
+            if fletes_pendientes_cnt > 0 or atrasadas_cnt > 0:
+                st.subheader("🚨 Semáforo Operativo y Financiero")
+                c_a1, c_a2 = st.columns(2)
+                with c_a1:
+                    if fletes_pendientes_cnt > 0:
+                        st.warning(f"⚠️ **{fletes_pendientes_cnt} embarque(s) en tránsito** aún no registran pago de flete al Forwarder.")
+                with c_a2:
+                    if atrasadas_cnt > 0:
+                        st.error(f"🚨 **{atrasadas_cnt} embarque(s)** superaron su fecha de ETA estimada y continúan sin ser entregados.")
+
+            st.markdown("---")
+            st.subheader("📊 Análisis Financiero y Logístico")
+            c_g1, c_g2 = st.columns(2)
+            
+            with c_g1:
+                st.markdown("##### 🏭 Saldo Pendiente por Proveedor / Fábrica")
+                if not df_activas.empty:
+                    df_fab = df_activas.groupby('fabricante')['monto_factura'].sum().reset_index()
+                    st.bar_chart(df_fab, x='fabricante', y='monto_factura')
+                else:
+                    st.caption("Sin cargas activas.")
+
+            with c_g2:
+                st.markdown("##### 🏦 Desembolsos por Banco / Plataforma")
+                if not df_pagos_db.empty:
+                    df_bancos = df_pagos_db.groupby('banco')['monto'].sum().reset_index()
+                    st.bar_chart(df_bancos, x='banco', y='monto')
+                else:
+                    st.caption("Sin pagos registrados.")
+
+        # --- B) ALMACÉN ---
+        elif role == "almacen":
+            df_camino = df_db[df_db['estatus'].str.contains('Tránsito', na=False)]
+            df_aduanas = df_db[df_db['estatus'] == 'En Aduanas']
+            
+            # Próximos 7 días
+            arribos_7d = df_activas[(df_activas['eta_dt'].dt.date >= today) & (df_activas['eta_dt'].dt.date <= today + pd.Timedelta(days=7))]
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("🚢 Cargas en Camino", len(df_camino))
+            m2.metric("🛃 Cargas en Aduana", len(df_aduanas))
+            m3.metric("📦 Entregadas este Mes", len(df_entregadas_mes))
+            m4.metric("🟡 Arribos (Próx 7 Días)", len(arribos_7d))
+
+            st.markdown("---")
+            st.subheader("🗓️ Calendario de Arribos Próximos")
+            if not arribos_7d.empty:
+                st.dataframe(arribos_7d[['num_invoice', 'num_contenedor', 'fabricante', 'producto', 'eta', 'estatus']], use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay arribos programados para los próximos 7 días.")
+
+            st.markdown("---")
+            st.subheader("📊 Embudo de Estatus de Cargas")
+            df_estatus_cnt = df_activas['estatus'].value_counts().reset_index()
+            df_estatus_cnt.columns = ['Estatus', 'Cantidad']
+            st.bar_chart(df_estatus_cnt, x='Estatus', y='Cantidad')
+
+        # --- C) ADMINISTRACIÓN ---
+        elif role == "admon":
+            # Calcular expedientes completos vs incompletos
+            def check_expediente(row):
+                has_pack = pd.notna(row.get('path_packing')) and clean_url(row.get('path_packing')) is not None
+                has_inv = pd.notna(row.get('path_invoice')) and clean_url(row.get('path_invoice')) is not None
+                has_fle = pd.notna(row.get('path_flete')) and clean_url(row.get('path_flete')) is not None
+                has_bl = pd.notna(row.get('path_bl')) and clean_url(row.get('path_bl')) is not None
+                return has_pack and has_inv and has_fle and has_bl
+
+            df_activas['expediente_ok'] = df_activas.apply(check_expediente, axis=1)
+            completo_cnt = len(df_activas[df_activas['expediente_ok']])
+            incompleto_cnt = len(df_activas[~df_activas['expediente_ok']])
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("🚢 Total Cargas Activas", len(df_activas))
+            m2.metric("📄 Expedientes Completos", f"{completo_cnt} de {len(df_activas)}")
+            m3.metric("📦 Cargas Entregadas este Mes", len(df_entregadas_mes))
+
+            st.markdown("---")
+            st.subheader("📁 Estado Detallado de Expedientes (Documentación Base)")
+            st.caption("Monitoreo de disponibilidad de Packing List, Factura Comercial, Flete, BL y trámites DUA.")
+
+            if not df_activas.empty:
+                rep_docs = []
+                for _, r in df_activas.iterrows():
+                    faltantes = []
+                    if pd.isna(r.get('path_packing')) or not clean_url(r.get('path_packing')): faltantes.append("Packing List")
+                    if pd.isna(r.get('path_invoice')) or not clean_url(r.get('path_invoice')): faltantes.append("Factura Comercial")
+                    if pd.isna(r.get('path_flete')) or not clean_url(r.get('path_flete')): faltantes.append("Factura Flete")
+                    if pd.isna(r.get('path_bl')) or not clean_url(r.get('path_bl')): faltantes.append("BL")
+                    if str(r.get('estatus')).strip() in ["En Tránsito 2", "En Tránsito 3", "En Aduanas"] and not r.get('solicitado_dua'): faltantes.append("DUA")
+
+                    rep_docs.append({
+                        "Invoice": r['num_invoice'],
+                        "Consignatario": r.get('consignatario') or 'N/A',
+                        "Estatus": r['estatus'],
+                        "Estado Expediente": "🟢 COMPLETO" if len(faltantes) == 0 else "🔴 INCOMPLETO",
+                        "Documentos / Trámites Faltantes": ", ".join(faltantes) if faltantes else "Ninguno (OK)"
+                    })
+                st.dataframe(pd.DataFrame(rep_docs), use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay cargas activas para auditar expedientes.")
+
+            st.markdown("---")
+            st.subheader("📊 Distribución de Cargas por Naviera y Consignatario")
+            c_a1, c_a2 = st.columns(2)
+            with c_a1:
+                st.markdown("##### 🚢 Cargas por Línea Naviera")
+                df_nav = df_activas['naviera'].value_counts().reset_index()
+                df_nav.columns = ['Naviera', 'Cantidad']
+                st.bar_chart(df_nav, x='Naviera', y='Cantidad')
+            with c_a2:
+                st.markdown("##### 🏢 Cargas por Consignatario")
+                df_cons = df_activas['consignatario'].value_counts().reset_index()
+                df_cons.columns = ['Consignatario', 'Cantidad']
+                st.bar_chart(df_cons, x='Consignatario', y='Cantidad')
+
+# --- VISTA 2: CONTROL DE EMBARQUES ---
+elif menu == "📋 Control de Embarques":
     st.title("📋 Control General de Embarques")
     st.caption("Visualización interactiva en la nube, búsqueda en tiempo real y gestión de archivos")
     
@@ -1006,7 +1176,7 @@ if menu == "📋 Control de Embarques":
                 except Exception as e:
                     st.error(f"❌ Error guardando en Supabase: {e}")
 
-# --- MENÚ 2: PAGOS INTERNACIONALES ---
+# --- MENÚ 3: PAGOS INTERNACIONALES ---
 elif "Pagos Internacionales" in menu:
     st.title("💳 Registro y Control de Pagos Internacionales")
     st.caption("Módulo exclusivo para Compras: Administra, modifica, elimina transferencias o salda deudas históricas")
@@ -1186,7 +1356,7 @@ elif "Pagos Internacionales" in menu:
         else:
             st.dataframe(df_all_pagos[['id', 'num_invoice', 'tipo_pago', 'banco', 'monto', 'fecha_pago', 'referencia']], use_container_width=True, hide_index=True)
 
-# --- MENÚ 3: CARGA MASIVA ---
+# --- MENÚ 4: CARGA MASIVA ---
 elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
     st.title("📊 Carga Masiva de Embarques")
     sample_data = pd.DataFrame([{
@@ -1265,7 +1435,7 @@ elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
         except Exception as e:
             st.error(f"Error procesando archivo: {e}")
 
-# --- MENÚ 4: REGISTRO MANUAL ---
+# --- MENÚ 5: REGISTRO MANUAL ---
 elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
     st.title("➕ Registrar Nuevo Embarque Manual")
     with st.form("form_embarque", clear_on_submit=True):
@@ -1321,7 +1491,7 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
                 except Exception as e:
                     st.error(f"❌ La Invoice {num_invoice} ya existe o hubo un fallo: {e}")
 
-# --- MENÚ 5: EDITAR EMBARQUE ---
+# --- MENÚ 6: EDITAR EMBARQUE ---
 elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
     st.title("✏️ Editar Embarque Existente")
     res_emb = supabase.table("embarques").select("*").execute()
