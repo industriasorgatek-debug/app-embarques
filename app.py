@@ -406,8 +406,7 @@ def generar_pdf_embarque(row_data, df_pagos):
             ])
         t_pagos = Table(table_data_pagos, colWidths=[120, 100, 90, 80, 130])
         t_pagos.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0F172A')),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('BACKGROUND', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('TOPPADDING', (0,0), (-1,-1), 4),
             ('BOTTOMPADDING', (0,0), (-1,-1), 4),
@@ -514,6 +513,10 @@ if menu == "📋 Control de Embarques":
 
         df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
 
+        # Funciones auxiliares para badges DUA y RECA en la tabla principal
+        df['dua_badge'] = df.apply(lambda r: "🟢 Solicitado" if r.get('solicitado_dua') else "🟡 Pendiente", axis=1)
+        df['reca_badge'] = df.apply(lambda r: "🟢 Solicitado" if r.get('solicitado_reca') else "🟡 Pendiente", axis=1)
+
         with st.expander("🔍 **Buscador y Filtros Avanzados**", expanded=True):
             col_f1, col_f2, col_f3, col_f4 = st.columns([2, 1, 1, 1])
             with col_f1: search_term = st.text_input("🔎 Búsqueda Global", placeholder="Escribe N° Invoice, Contenedor, BL, Fabricante o Producto...", key="search_global")
@@ -569,8 +572,8 @@ if menu == "📋 Control de Embarques":
                 elif 'Pagado' in str(val): return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
                 return ''
 
-            cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus'] + (['pago_flete_status'] if role == "admin" else [])
-            cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus'] + (['Estado Flete'] if role == "admin" else [])
+            cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus'] + (['pago_flete_status', 'dua_badge', 'reca_badge'] if role == "admin" else [])
+            cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus'] + (['Estado Flete', 'DUA', 'RECA'] if role == "admin" else [])
 
             df_display = df_filtered[cols_to_show].copy()
             df_display.columns = cols_names
@@ -637,10 +640,61 @@ if menu == "📋 Control de Embarques":
                             render_timeline(row_data['estatus'])
 
                         # =============================================================
+                        # 📑 CONTROL DE TRAMITACIÓN DE ADUANA (DUA) Y RECA (COMPRAS)
+                        # =============================================================
+                        if role == "admin" and str(row_data.get('estatus')).strip() in ["En Tránsito 2", "En Tránsito 3", "En Aduanas", "Entregado"]:
+                            sol_dua = bool(row_data.get('solicitado_dua', False))
+                            f_dua = str(row_data.get('fecha_solicitud_dua') or '')
+
+                            sol_reca = bool(row_data.get('solicitado_reca', False))
+                            f_reca = str(row_data.get('fecha_solicitud_reca') or '')
+
+                            with st.expander("📑 **CONTROL DE TRAMITACIÓN DE ADUANA (DUA) Y RECA**", expanded=True):
+                                st.caption("Registra el envío de expediente y seguimiento de trámites legales.")
+                                c_tr1, c_tr2 = st.columns(2)
+
+                                # PASO 1: DUA
+                                with c_tr1:
+                                    st.markdown("##### 1️⃣ Solicitud de Borrador DUA (Agente Aduana)")
+                                    check_dua = st.checkbox("✅ Marcar como 'DUA Solicitada'", value=sol_dua, key=f"chk_dua_{selected_invoice}")
+
+                                    if check_dua != sol_dua:
+                                        now_str = datetime.now().strftime("%d/%m/%Y %H:%M") if check_dua else None
+                                        supabase.table("embarques").update({
+                                            "solicitado_dua": check_dua,
+                                            "fecha_solicitud_dua": now_str
+                                        }).eq("num_invoice", selected_invoice).execute()
+                                        st.success("✅ Estado DUA actualizado.")
+                                        st.rerun()
+
+                                    if check_dua:
+                                        st.success(f"🟢 **DUA Solicitada** el `{f_dua}`")
+                                    else:
+                                        st.warning("⏳ **DUA Pendiente:** Aún no solicitada al Agente de Aduana.")
+
+                                # PASO 2: RECA
+                                with c_tr2:
+                                    st.markdown("##### 2️⃣ Solicitud de RECA (Exoneración)")
+                                    check_reca = st.checkbox("✅ Marcar como 'RECA Solicitado'", value=sol_reca, key=f"chk_reca_{selected_invoice}")
+
+                                    if check_reca != sol_reca:
+                                        now_str = datetime.now().strftime("%d/%m/%Y %H:%M") if check_reca else None
+                                        supabase.table("embarques").update({
+                                            "solicitado_reca": check_reca,
+                                            "fecha_solicitud_reca": now_str
+                                        }).eq("num_invoice", selected_invoice).execute()
+                                        st.success("✅ Estado RECA actualizado.")
+                                        st.rerun()
+
+                                    if check_reca:
+                                        st.success(f"🟢 **RECA Solicitado** el `{f_reca}`")
+                                    else:
+                                        st.warning("⏳ **RECA Pendiente:** Aún no enviado al Tramitador de RECA.")
+
+                        # =============================================================
                         # 2. 💼 EXPEDIENTE DIGITAL DEL EMBARQUE (DOCUMENTOS PRINCIPALES)
                         # =============================================================
                         with st.expander("💼 **Expediente Digital del Embarque (Documentos Principales)**", expanded=False):
-                            # Almacén solo ve Packing List | Compras y Administración ven los 4 archivos
                             if role == "almacen":
                                 docs_principales = [
                                     ("Packing List", row_data.get('path_packing'))
