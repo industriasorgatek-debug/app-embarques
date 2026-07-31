@@ -605,7 +605,7 @@ if menu == "📋 Control de Embarques":
                         st.markdown("---")
                         st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
-                        # Alerta de Flete (Si aplica)
+                        # Alerta de Flete (Si aplica para Compras)
                         if role == "admin":
                             es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
                             tiene_pago_ff = selected_invoice in invoices_con_pago_ff
@@ -618,16 +618,17 @@ if menu == "📋 Control de Embarques":
                         elif eta_type == "success": st.success(eta_msg)
                         else: st.info(eta_msg)
 
-                        # TRACKING DIRECTO
-                        st.markdown("##### 📡 Rastreo de Carga en Tiempo Real")
-                        url_track, label_track, info_ref = get_tracking_info(row_data['naviera'], row_data['num_contenedor'], row_data['num_bl'])
-                        c_track1, c_track2 = st.columns([3, 1])
-                        with c_track1: st.caption(f"Línea Naviera: **{row_data['naviera'] or 'No especificada'}** | {info_ref}")
-                        with c_track2:
-                            if url_track: st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
-                            else: st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
-
-                        st.markdown("---")
+                        # =============================================================
+                        # 📡 RASTREO EN TIEMPO REAL (PLEGABLE Y SOLO COMPRAS)
+                        # =============================================================
+                        if role == "admin":
+                            with st.expander("📡 **Rastreo de Carga en Tiempo Real**", expanded=False):
+                                url_track, label_track, info_ref = get_tracking_info(row_data['naviera'], row_data['num_contenedor'], row_data['num_bl'])
+                                c_track1, c_track2 = st.columns([3, 1])
+                                with c_track1: st.caption(f"Línea Naviera: **{row_data['naviera'] or 'No especificada'}** | {info_ref}")
+                                with c_track2:
+                                    if url_track: st.link_button(label=label_track, url=url_track, type="primary", use_container_width=True)
+                                    else: st.button("🚫 Sin datos para rastrear", disabled=True, use_container_width=True)
 
                         # =============================================================
                         # 1. 📍 LÍNEA DE TIEMPO Y PROGRESO (PLEGABLE)
@@ -636,15 +637,22 @@ if menu == "📋 Control de Embarques":
                             render_timeline(row_data['estatus'])
 
                         # =============================================================
-                        # 2. 💼 EXPEDIENTE DIGITAL Y ANEXOS (PLEGABLE)
+                        # 2. 💼 EXPEDIENTE DIGITAL DEL EMBARQUE (DOCUMENTOS PRINCIPALES)
                         # =============================================================
                         with st.expander("💼 **Expediente Digital del Embarque (Documentos Principales)**", expanded=False):
-                            docs_principales = [
-                                ("Packing List", row_data.get('path_packing')),
-                                ("Factura Comercial (Invoice)", row_data.get('path_invoice')),
-                                ("Factura de Flete", row_data.get('path_flete')),
-                                ("Bill of Lading (BL)", row_data.get('path_bl'))
-                            ]
+                            # Almacén solo ve Packing List | Compras y Administración ven los 4 archivos
+                            if role == "almacen":
+                                docs_principales = [
+                                    ("Packing List", row_data.get('path_packing'))
+                                ]
+                            else:
+                                docs_principales = [
+                                    ("Packing List", row_data.get('path_packing')),
+                                    ("Factura Comercial (Invoice)", row_data.get('path_invoice')),
+                                    ("Factura de Flete", row_data.get('path_flete')),
+                                    ("Bill of Lading (BL)", row_data.get('path_bl'))
+                                ]
+                            
                             col_d1, col_d2 = st.columns(2)
                             for idx, (label, url) in enumerate(docs_principales):
                                 col_target = col_d1 if idx % 2 == 0 else col_d2
@@ -724,7 +732,7 @@ if menu == "📋 Control de Embarques":
                                     key=f"btn_zip_{selected_invoice}"
                                 )
 
-                        # Módulos específicos para Almacén
+                        # Módulos específicos para Almacén (Cambio de estatus y subida de fotos de descarga)
                         if role == "almacen":
                             if row_data['estatus'] == "En Aduanas":
                                 st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado' al recibirlo en almacén.")
@@ -761,7 +769,7 @@ if menu == "📋 Control de Embarques":
                         df_pagos_emb = pd.DataFrame(res_p_emb.data) if res_p_emb.data else pd.DataFrame()
 
                         # =============================================================
-                        # 3. 💰 BALANCE FINANCIERO DE FÁBRICA (PLEGABLE)
+                        # 3. 💰 BALANCE FINANCIERO DE FÁBRICA (PLEGABLE - COMPRAS)
                         # =============================================================
                         if role == "admin":
                             with st.expander(f"💰 **BALANCE FINANCIERO DE FÁBRICA ({selected_invoice})**", expanded=False):
@@ -782,7 +790,7 @@ if menu == "📋 Control de Embarques":
                                     st.info("⚪ **Saldo Pendiente por Pagar a Fábrica:** $0.00 USD")
 
                         # =============================================================
-                        # 4. 📄 HISTORIAL DE PAGOS Y COMPROBANTES REGISTRADOS (PLEGABLE)
+                        # 4. 📄 HISTORIAL DE PAGOS Y COMPROBANTES REGISTRADOS (PLEGABLE - COMPRAS)
                         # =============================================================
                         if role == "admin":
                             with st.expander("📄 **HISTORIAL DE PAGOS Y COMPROBANTES REGISTRADOS**", expanded=False):
@@ -814,47 +822,49 @@ if menu == "📋 Control de Embarques":
                                 st.download_button(label=f"📄 Imprimir Ficha PDF ({selected_invoice})", data=pdf_data, file_name=f"Ficha_Embarque_{selected_invoice}.pdf", mime="application/pdf", type="secondary", use_container_width=True, key=f"btn_pdf_{selected_invoice}")
 
                         # =============================================================
-                        # 5. 📝 BITÁCORA DE NOTAS Y COMENTARIOS (DIRECTO EN PANTALLA)
+                        # 5. 💬 BITÁCORA DE COMENTARIOS Y NOVEDADES (VISIBLE PARA TODOS)
                         # =============================================================
-                        if role in ["admin", "almacen"]:
-                            st.markdown("---")
-                            st.subheader("📝 Bitácora de Notas y Comentarios")
-                            st.caption("Espacio exclusivo para Compras y Almacén para registrar observaciones de la carga.")
+                        st.markdown("---")
+                        with st.form(key=f"form_nota_{selected_invoice}", clear_on_submit=True):
+                            nuevo_comentario = st.text_area(
+                                "Agregar observación o comentario sobre esta carga:",
+                                placeholder="Escriba aquí cualquier novedad...",
+                                max_chars=400,
+                                height=80
+                            )
+                            btn_guardar_nota = st.form_submit_button("💬 Guardar Comentario", type="primary")
 
-                            with st.form(key=f"form_nota_{selected_invoice}", clear_on_submit=True):
-                                nuevo_comentario = st.text_area(
-                                    "Agregar comentario / novedad corta:",
-                                    placeholder="Ej: Contenedor recibido con empaque levemente dañado en paleta 3...",
-                                    max_chars=400,
-                                    height=80
-                                )
-                                btn_guardar_nota = st.form_submit_button("💬 Guardar Nota", type="primary")
+                            if btn_guardar_nota:
+                                if not nuevo_comentario.strip():
+                                    st.warning("⚠️ Escriba un comentario antes de guardar.")
+                                else:
+                                    fecha_hora_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
+                                    supabase.table("notas_embarque").insert({
+                                        "num_invoice": selected_invoice,
+                                        "usuario": st.session_state.user_dept,
+                                        "rol": role,
+                                        "comentario": nuevo_comentario.strip(),
+                                        "fecha_hora": fecha_hora_actual
+                                    }).execute()
+                                    st.success("✅ Comentario registrado exitosamente.")
+                                    st.rerun()
 
-                                if btn_guardar_nota:
-                                    if not nuevo_comentario.strip():
-                                        st.warning("⚠️ Escriba un comentario antes de guardar.")
-                                    else:
-                                        fecha_hora_actual = datetime.now().strftime("%d/%m/%Y %H:%M")
-                                        supabase.table("notas_embarque").insert({
-                                            "num_invoice": selected_invoice,
-                                            "usuario": st.session_state.user_dept,
-                                            "rol": role,
-                                            "comentario": nuevo_comentario.strip(),
-                                            "fecha_hora": fecha_hora_actual
-                                        }).execute()
-                                        st.success("✅ Comentario registrado exitosamente en la nube.")
-                                        st.rerun()
+                        res_notas = supabase.table("notas_embarque").select("*").eq("num_invoice", selected_invoice).order("id", desc=True).execute()
+                        df_notas = pd.DataFrame(res_notas.data) if res_notas.data else pd.DataFrame()
 
-                            res_notas = supabase.table("notas_embarque").select("*").eq("num_invoice", selected_invoice).order("id", desc=True).execute()
-                            df_notas = pd.DataFrame(res_notas.data) if res_notas.data else pd.DataFrame()
-
-                            if not df_notas.empty:
-                                st.markdown("##### 📜 Historial de Observaciones:")
-                                for _, n_row in df_notas.iterrows():
-                                    badge = "🛒 Compras" if n_row['rol'] == 'admin' else "📦 Almacén"
-                                    st.info(f"**{badge} ({n_row['usuario']})** — `{n_row['fecha_hora']}`\n\n💬 {n_row['comentario']}")
-                            else:
-                                st.caption("ℹ️ No hay observaciones registradas para esta carga aún.")
+                        if not df_notas.empty:
+                            st.markdown("##### 📜 Historial de Observaciones:")
+                            for _, n_row in df_notas.iterrows():
+                                if n_row['rol'] == 'admin':
+                                    badge = "🛒 Compras"
+                                elif n_row['rol'] == 'almacen':
+                                    badge = "📦 Almacén"
+                                else:
+                                    badge = "💼 Administración"
+                                
+                                st.info(f"**{badge} ({n_row['usuario']})** — `{n_row['fecha_hora']}`\n\n💬 {n_row['comentario']}")
+                        else:
+                            st.caption("ℹ️ No hay observaciones registradas para esta carga aún.")
 
         # FORMULARIO DE EDICIÓN RÁPIDA
         if role == "admin" and st.session_state.editing_invoice:
