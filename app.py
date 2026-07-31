@@ -100,6 +100,7 @@ if "authenticated" not in st.session_state: st.session_state.authenticated = Fal
 if "user_role" not in st.session_state: st.session_state.user_role = None
 if "user_dept" not in st.session_state: st.session_state.user_dept = None
 if "editing_invoice" not in st.session_state: st.session_state.editing_invoice = None
+if "preselected_pago_invoice" not in st.session_state: st.session_state.preselected_pago_invoice = None
 
 # COMPROBAR MODO MANTENIMIENTO GLOBAL
 modo_mantenimiento_activo = get_maintenance_mode()
@@ -454,7 +455,7 @@ if role == "admin":
 else:
     options = ["📋 Control de Embarques"]
 
-menu = st.sidebar.radio("Navegación", options)
+menu = st.sidebar.radio("Navegación", options, key="nav_menu")
 
 # -------------------------------------------------------------
 # INTERRUPTOR DE MODO MANTENIMIENTO (SOLO VISIBLE PARA COMPRAS)
@@ -479,6 +480,7 @@ if st.sidebar.button("🔒 Cerrar Sesión", use_container_width=True):
     st.session_state.user_role = None
     st.session_state.user_dept = None
     st.session_state.editing_invoice = None
+    st.session_state.preselected_pago_invoice = None
     st.rerun()
 
 # BANNER DE ADVERTENCIA PARA COMPRAS SI MANTENIMIENTO ESTÁ ACTIVO
@@ -850,6 +852,10 @@ if menu == "📋 Control de Embarques":
                             with st.expander("📄 **HISTORIAL DE PAGOS Y COMPROBANTES REGISTRADOS**", expanded=False):
                                 if df_pagos_emb.empty:
                                     st.info("No se han registrado pagos o abonos para este embarque.")
+                                    if st.button("💳 Registrar Pago para esta Invoice", type="primary", use_container_width=True, key=f"btn_pago_empty_{selected_invoice}"):
+                                        st.session_state.preselected_pago_invoice = selected_invoice
+                                        st.session_state.nav_menu = "💳 Módulo de Pagos Internacionales"
+                                        st.rerun()
                                 else:
                                     for idx, p_row in df_pagos_emb.iterrows():
                                         c_p1, c_p2, c_p3, c_p4 = st.columns([2, 2, 2, 2])
@@ -863,6 +869,11 @@ if menu == "📋 Control de Embarques":
                                         if path_comp:
                                             st.link_button(f"📄 Ver Comprobante #{p_row['referencia']}", path_comp, use_container_width=True)
                                         st.divider()
+
+                                    if st.button("➕ Registrar Nuevo Abono para esta Invoice", type="secondary", use_container_width=True, key=f"btn_pago_not_empty_{selected_invoice}"):
+                                        st.session_state.preselected_pago_invoice = selected_invoice
+                                        st.session_state.nav_menu = "💳 Módulo de Pagos Internacionales"
+                                        st.rerun()
 
                         # Acciones Rápidas (Edición y PDF) para Compras
                         if role == "admin":
@@ -1005,10 +1016,17 @@ elif "Pagos Internacionales" in menu:
         # TAB 1: REGISTRAR NUEVO PAGO NORMAL
         with tab_nuevo:
             st.subheader("➕ Registrar Nuevo Abono / Pago")
+            
+            # Preselección inteligente si se hace clic desde la tabla
+            inv_keys = list(invoices_map.keys())
+            default_idx = 0
+            if st.session_state.get("preselected_pago_invoice") in inv_keys:
+                default_idx = inv_keys.index(st.session_state.preselected_pago_invoice)
+
             with st.form("form_registrar_pago", clear_on_submit=True):
                 col_p1, col_p2 = st.columns(2)
                 with col_p1:
-                    selected_inv_key = st.selectbox("Seleccione Embarque / Invoice *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x], key="new_pago_inv")
+                    selected_inv_key = st.selectbox("Seleccione Embarque / Invoice *", inv_keys, index=default_idx, format_func=lambda x: invoices_map[x], key="new_pago_inv")
                     tipo_pago = st.selectbox("Tipo de Pago *", TIPO_PAGO_LISTA, key="new_pago_tipo")
                     banco_pago = st.selectbox("Banco / Plataforma de Origen *", BANCOS_LISTA, key="new_pago_banco")
                     monto_pago = st.number_input("Monto del Abono ($ USD) *", min_value=0.01, step=100.0, format="%.2f", key="new_pago_monto")
@@ -1041,6 +1059,7 @@ elif "Pagos Internacionales" in menu:
                                 supabase.table("embarques").update({"estatus": "En Producción"}).eq("num_invoice", selected_inv_key).execute()
                                 st.info("ℹ️ **Estatus Actualizado:** El embarque cambió automáticamente a **'En Producción'**.")
 
+                        st.session_state.preselected_pago_invoice = None
                         st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado exitosamente.")
                         st.rerun()
 
