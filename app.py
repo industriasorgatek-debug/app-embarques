@@ -278,8 +278,23 @@ def get_eta_status(eta_val, estatus_val, row_data=None):
     estatus_clean = str(estatus_val).strip()
 
     if estatus_clean == "Entregado":
-        dias_ad = row_data.get('dias_en_aduana') if row_data and pd.notna(row_data.get('dias_en_aduana')) else max(0, (safe_parse_date(row_data.get('fecha_entrega', today)) - eta_date).days if row_data else 0)
-        return f"✅ **Estatus:** ENTREGADO el {safe_parse_date(row_data.get('fecha_entrega', today)).strftime('%d/%m/%Y')} (Permaneció **{dias_ad} día(s)** en Aduana/Puerto)", "success"
+        dias_ad = 0
+        fecha_ent_str = today.strftime('%d/%m/%Y')
+        
+        if row_data is not None:
+            val_dias = row_data.get('dias_en_aduana')
+            if pd.notna(val_dias) and str(val_dias).strip() not in ['', 'None', 'nan']:
+                try:
+                    dias_ad = int(float(val_dias))
+                except Exception:
+                    dias_ad = 0
+            else:
+                fecha_ent = safe_parse_date(row_data.get('fecha_entrega'))
+                dias_ad = max(0, (fecha_ent - eta_date).days)
+            
+            fecha_ent_str = safe_parse_date(row_data.get('fecha_entrega')).strftime('%d/%m/%Y')
+
+        return f"✅ **Estatus:** ENTREGADO el {fecha_ent_str} (Permaneció **{dias_ad} día(s)** en Aduana/Puerto)", "success"
     elif diff < 0:
         dias_en_puerto = abs(diff)
         return f"⚓ **Carga en Puerto / Aduana hace {dias_en_puerto} día(s)** (Arribó el {eta_date.strftime('%d/%m/%Y')})", "warning"
