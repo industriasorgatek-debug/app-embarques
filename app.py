@@ -1,3 +1,45 @@
+¡Entendido perfectamente! Es un ajuste con mucho sentido operativo.
+
+En la logística de importación real, cuando la fecha de ETA se gestiona
+manualmente y se actualiza con precisión, el vencimiento del ETA no significa un
+"retraso de transporte", sino el inicio de la fase en puerto/aduana
+(desaduanamiento, inspección, pago de impuestos y traslado).
+
+Aquí te explico cómo implementaremos cada punto y abajo te entrego el código
+completo actualizado:
+
+💡 Resumen de los Ajustes Realizados:
+
+1.  Avisos de ETA / Arribo (Sustitución de "Atrasado"):
+
+      - En get_eta_status() y en los KPIs del Dashboard, si la fecha del ETA ya
+        pasó y la carga no se ha entregado, ya no dirá "🚨 ¡EMBARQUE ATRASADO!".
+      - Ahora indicará: "⚓ En Puerto / Aduana hace X día(s)" (con fecha exacta
+        de arribo).
+      - En el Dashboard de Compras, el indicador ahora se llama "⚓ Cargas en
+        Puerto/Aduana".
+
+2.  Cálculo de Días en Aduana al Entregar:
+
+      - Al presionar el botón "✅ Marcar como ENTREGADO" (en Almacén) o al
+        cambiar el estatus a Entregado desde la edición de Compras:
+      - El sistema calcula automáticamente la diferencia de días:
+        \text{Días en Aduana} = \text{Fecha de Entrega (Hoy)} - \text{ETA (Fecha de Arribo)}
+      - Se guarda en Supabase los campos fecha_entrega y dias_en_aduana.
+
+3.  Ficha PDF Mejorada (Días en Aduana + Comentarios):
+
+      - Sección de Datos Logísticos: Ahora incluye la fila "Días en Aduana:" (si
+        ya fue entregado muestra la cantidad exacta de días retenido/en trámite;
+        si está activo en aduana, calcula los días transcurridos hasta hoy).
+      - Nueva Sección "💬 Observaciones y Bitácora de Novedades": Extrae
+        automáticamente los comentarios registrados por Almacén y Compras para
+        esa Invoice y los imprime en el PDF con su fecha, usuario y rol.
+
+📜 Código Completo Actualizado
+
+Aquí tienes la versión lista para sustituir completamente en tu archivo Python:
+
 import streamlit as st
 import pandas as pd
 import io
@@ -267,7 +309,8 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
 
     return url, label, f"Ref: `{ref}` ({nav})"
 
-def get_eta_status(eta_val, estatus_val):
+# NUEVA LÓGICA DE ETA (CAMBIO 1)
+def get_eta_status(eta_val, estatus_val, row_data=None):
     if pd.isna(eta_val) or str(eta_val).strip() in ['', 'None', 'nan', 'NaT']:
         return "⚪ **ETA:** No especificada", "info"
     
@@ -277,15 +320,17 @@ def get_eta_status(eta_val, estatus_val):
     estatus_clean = str(estatus_val).strip()
 
     if estatus_clean == "Entregado":
-        return f"✅ **Estatus:** ENTREGADO el {eta_date.strftime('%d/%m/%Y')}", "success"
+        dias_ad = row_data.get('dias_en_aduana') if row_data and pd.notna(row_data.get('dias_en_aduana')) else max(0, (safe_parse_date(row_data.get('fecha_entrega', today)) - eta_date).days if row_data else 0)
+        return f"✅ **Estatus:** ENTREGADO el {safe_parse_date(row_data.get('fecha_entrega', today)).strftime('%d/%m/%Y')} (Permaneció **{dias_ad} día(s)** en Aduana/Puerto)", "success"
     elif diff < 0:
-        return f"🚨 **¡EMBARQUE ATRASADO POR {abs(diff)} DÍA(S)!** (ETA era el {eta_date.strftime('%d/%m/%Y')})", "error"
+        dias_en_puerto = abs(diff)
+        return f"⚓ **Carga en Puerto / Aduana hace {dias_en_puerto} día(s)** (Arribó el {eta_date.strftime('%d/%m/%Y')})", "warning"
     elif diff == 0:
-        return f"🟡 **¡ARRIBO ESTIMADO HOY!** ({eta_date.strftime('%d/%m/%Y')})", "warning"
+        return f"🟡 **¡ARRIBO EN PUERTO ESTIMADO HOY!** ({eta_date.strftime('%d/%m/%Y')})", "warning"
     elif diff <= 3:
-        return f"🟡 **Arribo Inminente:** Faltan solo **{diff} día(s)** ({eta_date.strftime('%d/%m/%Y')})", "warning"
+        return f"🟡 **Arribo Inminente:** Faltan solo **{diff} día(s)** en tránsito ({eta_date.strftime('%d/%m/%Y')})", "warning"
     else:
-        return f"🟢 **Arribo a Tiempo:** Faltan **{diff} días** ({eta_date.strftime('%d/%m/%Y')})", "info"
+        return f"🟢 **En Tránsito:** Arribo estimado en **{diff} días** ({eta_date.strftime('%d/%m/%Y')})", "info"
 
 def render_timeline(estatus_actual):
     fases = [
@@ -305,7 +350,8 @@ def render_timeline(estatus_actual):
             elif i == idx_actual: st.info(f"📍 {icono} **{nombre_fase}**")
             else: st.caption(f"⚪ {icono} {nombre_fase}")
 
-def generar_pdf_embarque(row_data, df_pagos):
+# PDF MEJORADO CON DÍAS EN ADUANA Y COMENTARIOS (CAMBIO 3)
+def generar_pdf_embarque(row_data, df_pagos, df_notas=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
@@ -323,14 +369,31 @@ def generar_pdf_embarque(row_data, df_pagos):
         Spacer(1, 4)
     ]
 
+    # Lógica de cálculo de días en aduana para el PDF
+    eta_dt = safe_parse_date(row_data.get('eta'))
+    estatus_curr = str(row_data.get('estatus', '')).strip()
+
+    if estatus_curr == "Entregado":
+        dias_ad_val = row_data.get('dias_en_aduana')
+        if pd.isna(dias_ad_val) or dias_ad_val is None:
+            f_ent = safe_parse_date(row_data.get('fecha_entrega', date.today()))
+            dias_ad_str = f"{max(0, (f_ent - eta_dt).days)} día(s)"
+        else:
+            dias_ad_str = f"{int(dias_ad_val)} día(s)"
+    else:
+        today = date.today()
+        diff_days = (today - eta_dt).days
+        dias_ad_str = f"{diff_days} día(s) (En Proceso / Tránsito)" if diff_days > 0 else "0 días (En camino)"
+
     data_logistica = [
-        [Paragraph("<b>Estatus Actual:</b>", body_style), str(row_data.get('estatus', '')), Paragraph("<b>Línea Naviera:</b>", body_style), str(row_data.get('naviera', ''))],
+        [Paragraph("<b>Estatus Actual:</b>", body_style), estatus_curr, Paragraph("<b>Línea Naviera:</b>", body_style), str(row_data.get('naviera', ''))],
         [Paragraph("<b>N° Contenedor:</b>", body_style), str(row_data.get('num_contenedor', '')), Paragraph("<b>N° BL:</b>", body_style), str(row_data.get('num_bl', ''))],
         [Paragraph("<b>Origen:</b>", body_style), str(row_data.get('origen', '')), Paragraph("<b>Destino:</b>", body_style), str(row_data.get('destino', ''))],
-        [Paragraph("<b>ETA (Arribo):</b>", body_style), str(row_data.get('eta', '')), Paragraph("<b>Producto:</b>", body_style), str(row_data.get('producto', ''))]
+        [Paragraph("<b>ETA (Arribo):</b>", body_style), str(row_data.get('eta', '')), Paragraph("<b>Producto:</b>", body_style), str(row_data.get('producto', ''))],
+        [Paragraph("<b>Días en Aduana / Puerto:</b>", body_style), dias_ad_str, Paragraph("<b>Fecha Entrega:</b>", body_style), str(row_data.get('fecha_entrega') or 'Pendiente')]
     ]
 
-    t1 = Table(data_logistica, colWidths=[110, 150, 110, 150])
+    t1 = Table(data_logistica, colWidths=[120, 140, 110, 150])
     t1.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
@@ -365,7 +428,6 @@ def generar_pdf_embarque(row_data, df_pagos):
     df_flete = df_pagos[df_pagos['tipo_pago'] == 'Pago a Freight Forwarder'] if not df_pagos.empty else pd.DataFrame()
     monto_flete_pagado = df_flete['monto'].sum() if not df_flete.empty else 0.0
     
-    estatus_curr = str(row_data.get('estatus', '')).strip()
     if estatus_curr in ['Entregado', 'Pendiente Pago']:
         estado_flete_str = "No Aplica / Pagado"
     elif not df_flete.empty:
@@ -392,7 +454,7 @@ def generar_pdf_embarque(row_data, df_pagos):
         ('TOPPADDING', (0,0), (-1,-1), 5),
         ('BOTTOMPADDING', (0,0), (-1,-1), 5),
     ]))
-    elements.extend([t3, Spacer(1, 10), Paragraph("<b>Historial Unificado de Pagos Registrados (Fábrica y Flete):</b>", body_style), Spacer(1, 4)])
+    elements.extend([t3, Spacer(1, 10), Paragraph("<b>Historial Unificado de Pagos Registrados:</b>", body_style), Spacer(1, 4)])
 
     if df_pagos.empty:
         elements.append(Paragraph("<i>No existen pagos registrados para este embarque.</i>", body_style))
@@ -415,6 +477,29 @@ def generar_pdf_embarque(row_data, df_pagos):
             ('BOTTOMPADDING', (0,0), (-1,-1), 4),
         ]))
         elements.append(t_pagos)
+
+    # IMPRIMIR COMENTARIOS EN EL PDF (CAMBIO 3)
+    elements.extend([Spacer(1, 10), Paragraph("💬 Observaciones y Bitácora de Novedades (Compras y Almacén)", subtitle_style), Spacer(1, 4)])
+    if df_notas is not None and not df_notas.empty:
+        table_notas_data = [[Paragraph("Fecha / Hora", header_cell_style), Paragraph("Usuario / Rol", header_cell_style), Paragraph("Comentario / Observación", header_cell_style)]]
+        for _, n in df_notas.iterrows():
+            rol_lbl = "🛒 Compras" if n.get('rol') == 'admin' else ("📦 Almacén" if n.get('rol') == 'almacen' else "💼 Admon")
+            table_notas_data.append([
+                Paragraph(str(n.get('fecha_hora', '')), body_style),
+                Paragraph(f"{rol_lbl} ({n.get('usuario', '')})", body_style),
+                Paragraph(str(n.get('comentario', '')), body_style)
+            ])
+        t_notas = Table(table_notas_data, colWidths=[100, 110, 310])
+        t_notas.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#334155')),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ]))
+        elements.append(t_notas)
+    else:
+        elements.append(Paragraph("<i>No se registran observaciones adicionales en la bitácora de este embarque.</i>", body_style))
 
     doc.build(elements)
     buffer.seek(0)
@@ -539,26 +624,26 @@ if menu == "📊 Dashboard General":
             total_abonado_fab = df_pagos_fab['monto'].sum() if not df_pagos_fab.empty else 0.0
             saldo_total_fabrica = max(0.0, monto_total_facturas - total_abonado_fab)
 
-            # Contadores de alertas
+            # Contadores de alertas (CAMBIO 1)
             fletes_pendientes_cnt = len(df_activas[~df_activas['num_invoice'].isin(invoices_pago_ff) & (~df_activas['estatus'].isin(['Entregado', 'Pendiente Pago']))])
-            atrasadas_cnt = len(df_activas[(df_activas['eta_dt'].dt.date < today)])
+            en_puerto_cnt = len(df_activas[(df_activas['eta_dt'].dt.date <= today)])
 
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("🚢 Cargas Activas", len(df_activas))
-            m2.metric("🚨 Cargas Atrasadas", atrasadas_cnt)
+            m2.metric("⚓ En Puerto / Aduana", en_puerto_cnt)
             m3.metric("💰 Capital Facturado", f"${monto_total_facturas:,.2f} USD")
             m4.metric("🔴 Deuda Pendiente Fábricas", f"${saldo_total_fabrica:,.2f} USD")
 
             st.markdown("---")
-            if fletes_pendientes_cnt > 0 or atrasadas_cnt > 0:
+            if fletes_pendientes_cnt > 0 or en_puerto_cnt > 0:
                 st.subheader("🚨 Semáforo Operativo y Financiero")
                 c_a1, c_a2 = st.columns(2)
                 with c_a1:
                     if fletes_pendientes_cnt > 0:
                         st.warning(f"⚠️ **{fletes_pendientes_cnt} embarque(s) en tránsito** aún no registran pago de flete al Forwarder.")
                 with c_a2:
-                    if atrasadas_cnt > 0:
-                        st.error(f"🚨 **{atrasadas_cnt} embarque(s)** superaron su fecha de ETA estimada y continúan sin ser entregados.")
+                    if en_puerto_cnt > 0:
+                        st.info(f"⚓ **{en_puerto_cnt} embarque(s)** se encuentran actualmente arribados en puerto o en proceso aduanal.")
 
             st.markdown("---")
             st.subheader("📊 Análisis Financiero y Logístico")
@@ -609,7 +694,6 @@ if menu == "📊 Dashboard General":
 
         # --- C) ADMINISTRACIÓN ---
         elif role == "admon":
-            # Calcular expedientes completos vs incompletos
             def check_expediente(row):
                 has_pack = pd.notna(row.get('path_packing')) and clean_url(row.get('path_packing')) is not None
                 has_inv = pd.notna(row.get('path_invoice')) and clean_url(row.get('path_invoice')) is not None
@@ -619,7 +703,6 @@ if menu == "📊 Dashboard General":
 
             df_activas['expediente_ok'] = df_activas.apply(check_expediente, axis=1)
             completo_cnt = len(df_activas[df_activas['expediente_ok']])
-            incompleto_cnt = len(df_activas[~df_activas['expediente_ok']])
 
             m1, m2, m3 = st.columns(3)
             m1.metric("🚢 Total Cargas Activas", len(df_activas))
@@ -710,7 +793,7 @@ elif menu == "📋 Control de Embarques":
         df_filtered['eta_dt'] = pd.to_datetime(df_filtered['eta'], errors='coerce')
         df_filtered = df_filtered.sort_values(by='eta_dt', ascending=True, na_position='last')
 
-        # 🙈 OCULTAR "ENTREGADO" POR DEFECTO SI NO HAY BÚSQUEDA NI FILTRO EXPLÍCITO
+        # OCULTAR "ENTREGADO" POR DEFECTO SI NO HAY BÚSQUEDA NI FILTRO EXPLÍCITO
         if filtro_estatus == "Todos" and not search_term.strip():
             df_filtered = df_filtered[df_filtered['estatus'] != 'Entregado']
         elif filtro_estatus != "Todos":
@@ -795,7 +878,8 @@ elif menu == "📋 Control de Embarques":
                             if not es_omito_flete and not tiene_pago_ff:
                                 st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
 
-                        eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'])
+                        # AVISO DE ETA / DÍAS EN PUERTO Y ADUANA (CAMBIO 1)
+                        eta_msg, eta_type = get_eta_status(row_data['eta'], row_data['estatus'], row_data)
                         if eta_type == "error": st.error(eta_msg)
                         elif eta_type == "warning": st.warning(eta_msg)
                         elif eta_type == "success": st.success(eta_msg)
@@ -966,13 +1050,22 @@ elif menu == "📋 Control de Embarques":
                                     key=f"btn_zip_{selected_invoice}"
                                 )
 
-                        # Módulos específicos para Almacén (Cambio de estatus y subida de fotos de descarga)
+                        # MÓDULOS ESPECÍFICOS PARA ALMACÉN (CAMBIO 2: REGISTRAR DÍAS EN ADUANA AL ENTREGAR)
                         if role == "almacen":
-                            if row_data['estatus'] == "En Aduanas":
+                            if row_data['estatus'] in ["En Aduanas", "En Tránsito 1", "En Tránsito 2", "En Tránsito 3"]:
                                 st.info("💡 **Acción disponible:** Puede marcar este embarque como 'Entregado' al recibirlo en almacén.")
                                 if st.button("✅ Marcar como ENTREGADO", type="primary"):
-                                    supabase.table("embarques").update({"estatus": "Entregado"}).eq("num_invoice", selected_invoice).execute()
-                                    st.success("¡Estatus actualizado a 'Entregado' con éxito!")
+                                    today_str = str(date.today())
+                                    eta_date = safe_parse_date(row_data.get('eta'))
+                                    dias_aduana_calc = max(0, (date.today() - eta_date).days)
+                                    
+                                    supabase.table("embarques").update({
+                                        "estatus": "Entregado",
+                                        "fecha_entrega": today_str,
+                                        "dias_en_aduana": dias_aduana_calc
+                                    }).eq("num_invoice", selected_invoice).execute()
+                                    
+                                    st.success(f"¡Estatus actualizado a 'Entregado'! (Permaneció {dias_aduana_calc} día(s) en Aduana).")
                                     st.rerun()
 
                             if row_data['estatus'] == "Entregado":
@@ -1053,7 +1146,11 @@ elif menu == "📋 Control de Embarques":
                                         st.session_state.pending_nav_menu = "💳 Módulo de Pagos Internacionales"
                                         st.rerun()
 
-                        # Acciones Rápidas (Edición y PDF) para Compras
+                        # Consulta de notas escritas en este embarque
+                        res_notas = supabase.table("notas_embarque").select("*").eq("num_invoice", selected_invoice).order("id", desc=True).execute()
+                        df_notas_emb = pd.DataFrame(res_notas.data) if res_notas.data else pd.DataFrame()
+
+                        # Acciones Rápidas (Edición y PDF) para Compras (CAMBIO 3: PDF INCLUYE COMENTARIOS Y DÍAS EN ADUANA)
                         if role == "admin":
                             col_b1, col_b2 = st.columns(2)
                             with col_b1:
@@ -1062,7 +1159,7 @@ elif menu == "📋 Control de Embarques":
 
                             with col_b2:
                                 try:
-                                    pdf_data = generar_pdf_embarque(row_data, df_pagos_emb)
+                                    pdf_data = generar_pdf_embarque(row_data, df_pagos_emb, df_notas_emb)
                                     st.download_button(label=f"📄 Imprimir Ficha PDF ({selected_invoice})", data=pdf_data, file_name=f"Ficha_Embarque_{selected_invoice}.pdf", mime="application/pdf", type="secondary", use_container_width=True, key=f"btn_pdf_{selected_invoice}")
                                 except Exception as e_pdf:
                                     st.error(f"⚠️ Error generando PDF: {e_pdf}")
@@ -1095,12 +1192,9 @@ elif menu == "📋 Control de Embarques":
                                     st.success("✅ Comentario registrado exitosamente.")
                                     st.rerun()
 
-                        res_notas = supabase.table("notas_embarque").select("*").eq("num_invoice", selected_invoice).order("id", desc=True).execute()
-                        df_notas = pd.DataFrame(res_notas.data) if res_notas.data else pd.DataFrame()
-
-                        if not df_notas.empty:
+                        if not df_notas_emb.empty:
                             st.markdown("##### 📜 Historial de Observaciones:")
-                            for _, n_row in df_notas.iterrows():
+                            for _, n_row in df_notas_emb.iterrows():
                                 if n_row['rol'] == 'admin':
                                     badge = "🛒 Compras"
                                 elif n_row['rol'] == 'almacen':
@@ -1112,7 +1206,7 @@ elif menu == "📋 Control de Embarques":
                         else:
                             st.caption("ℹ️ No hay observaciones registradas para esta carga aún.")
 
-        # FORMULARIO DE EDICIÓN RÁPIDA
+        # FORMULARIO DE EDICIÓN RÁPIDA (CAMBIO 2: REGISTRAR DÍAS EN ADUANA SI EDITA A ENTREGADO)
         if role == "admin" and st.session_state.editing_invoice:
             st.markdown("---")
             st.subheader(f"🛠️ Editando Embarque: {st.session_state.editing_invoice}")
@@ -1160,15 +1254,21 @@ elif menu == "📋 Control de Embarques":
                 p_fle = upload_file_to_supabase(q_file_fle, st.session_state.editing_invoice, "FLE") if q_file_fle else clean_url(row_data.get('path_flete'))
                 p_bl = upload_file_to_supabase(q_file_bl, st.session_state.editing_invoice, "BL") if q_file_bl else clean_url(row_data.get('path_bl'))
                 
+                update_payload = {
+                    "origen": origen_e, "destino": destino_e, "fabricante": fabricante_e,
+                    "agente_carga": agente_carga_e, "agente_aduanas": agente_aduanas_e,
+                    "consignatario": consignatario_e, "producto": producto_e, "num_bl": num_bl_e,
+                    "naviera": naviera_e, "num_contenedor": num_contenedor_e, "eta": str(eta_e),
+                    "estatus": estatus_e, "path_packing": p_pack, "path_invoice": p_inv,
+                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_e
+                }
+
+                if estatus_e == "Entregado" and row_data.get('estatus') != "Entregado":
+                    update_payload["fecha_entrega"] = str(date.today())
+                    update_payload["dias_en_aduana"] = max(0, (date.today() - eta_e).days)
+
                 try:
-                    supabase.table("embarques").update({
-                        "origen": origen_e, "destino": destino_e, "fabricante": fabricante_e,
-                        "agente_carga": agente_carga_e, "agente_aduanas": agente_aduanas_e,
-                        "consignatario": consignatario_e, "producto": producto_e, "num_bl": num_bl_e,
-                        "naviera": naviera_e, "num_contenedor": num_contenedor_e, "eta": str(eta_e),
-                        "estatus": estatus_e, "path_packing": p_pack, "path_invoice": p_inv,
-                        "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_e
-                    }).eq("num_invoice", st.session_state.editing_invoice).execute()
+                    supabase.table("embarques").update(update_payload).eq("num_invoice", st.session_state.editing_invoice).execute()
                     
                     st.session_state.editing_invoice = None
                     st.success("✅ ¡Embarque actualizado con éxito en Supabase!")
@@ -1543,17 +1643,25 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                 p_fle = upload_file_to_supabase(new_file_flete, selected_invoice, "FLE") if new_file_flete else clean_url(row.get('path_flete'))
                 p_bl = upload_file_to_supabase(new_file_bl, selected_invoice, "BL") if new_file_bl else clean_url(row.get('path_bl'))
                 
+                update_payload = {
+                    "origen": origen_edit, "destino": destino_edit, "fabricante": fabricante_edit,
+                    "agente_carga": agente_carga_edit, "agente_aduanas": agente_aduanas_edit,
+                    "consignatario": consignatario_edit, "producto": producto_edit, "num_bl": num_bl_edit,
+                    "naviera": naviera_edit, "num_contenedor": num_contenedor_edit, "eta": str(eta_edit),
+                    "estatus": estatus_edit, "path_packing": p_pack, "path_invoice": p_inv,
+                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit
+                }
+
+                if estatus_edit == "Entregado" and row.get('estatus') != "Entregado":
+                    update_payload["fecha_entrega"] = str(date.today())
+                    update_payload["dias_en_aduana"] = max(0, (date.today() - eta_edit).days)
+
                 try:
-                    supabase.table("embarques").update({
-                        "origen": origen_edit, "destino": destino_edit, "fabricante": fabricante_edit,
-                        "agente_carga": agente_carga_edit, "agente_aduanas": agente_aduanas_edit,
-                        "consignatario": consignatario_edit, "producto": producto_edit, "num_bl": num_bl_edit,
-                        "naviera": naviera_edit, "num_contenedor": num_contenedor_edit, "eta": str(eta_edit),
-                        "estatus": estatus_edit, "path_packing": p_pack, "path_invoice": p_inv,
-                        "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit
-                    }).eq("num_invoice", selected_invoice).execute()
+                    supabase.table("embarques").update(update_payload).eq("num_invoice", selected_invoice).execute()
                     
                     st.success(f"✅ Embarque Invoice {selected_invoice} actualizado correctamente en Supabase.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error al guardar cambios en Supabase: {e}")
+
+
