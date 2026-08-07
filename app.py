@@ -963,9 +963,7 @@ if role == "almacen":
                                     eta_date = safe_parse_date(row_data.get('eta'))
                                     dias_aduana_calc = max(0, (date.today() - eta_date).days)
                                     
-                                    # Intentos seguros de actualización con tolerancia a columnas faltantes
                                     try:
-                                        # Intento 1: Actualización completa (Estatus, Fecha y Días)
                                         supabase.table("embarques").update({
                                             "estatus": "Entregado",
                                             "fecha_entrega": today_str,
@@ -973,13 +971,11 @@ if role == "almacen":
                                         }).eq("num_invoice", selected_invoice).execute()
                                     except Exception:
                                         try:
-                                            # Intento 2: Si no existe la columna 'dias_en_aduana'
                                             supabase.table("embarques").update({
                                                 "estatus": "Entregado",
                                                 "fecha_entrega": today_str
                                             }).eq("num_invoice", selected_invoice).execute()
                                         except Exception:
-                                            # Intento 3: Si solo existe la columna 'estatus'
                                             supabase.table("embarques").update({
                                                 "estatus": "Entregado"
                                             }).eq("num_invoice", selected_invoice).execute()
