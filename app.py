@@ -987,20 +987,38 @@ elif menu == "📋 Control de Embarques":
                         df_pagos_emb = pd.DataFrame(res_p_emb.data) if res_p_emb.data else pd.DataFrame()
 
                         if role == "admin":
-                            with st.expander(f"💰 **BALANCE FINANCIERO DE FÁBRICA ({selected_invoice})**", expanded=False):
+                            with st.expander(f"💰 **BALANCE FINANCIERO Y PAGOS DE FÁBRICA ({selected_invoice})**", expanded=True):
                                 df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
                                 monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
                                 monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
                                 saldo_pendiente = max(0.0, monto_factura - monto_total_pagado_fabrica)
 
-                                m1, m2 = st.columns(2)
+                                m1, m2, m3 = st.columns(3)
                                 m1.metric("Monto Total Factura", f"${monto_factura:,.2f} USD")
                                 m2.metric("Total Abonado", f"${monto_total_pagado_fabrica:,.2f} USD")
+                                m3.metric("Saldo Pendiente", f"${saldo_pendiente:,.2f} USD")
                                 
                                 if saldo_pendiente <= 0 and monto_factura > 0:
                                     st.success("🟢 **Saldo Pendiente Fábrica:** $0.00 USD — ¡PAGADO COMPLETAMENTE!")
                                 else:
                                     st.error(f"🔴 **Saldo Pendiente por Pagar:** ${saldo_pendiente:,.2f} USD")
+
+                                st.markdown("##### 🧾 Detalle de Pagos / Abonos Registrados:")
+                                if not df_pagos_emb.empty:
+                                    df_disp_pagos = df_pagos_emb[['fecha_pago', 'tipo_pago', 'banco', 'monto', 'referencia', 'path_comprobante']].copy()
+                                    df_disp_pagos.columns = ['Fecha', 'Tipo de Pago', 'Banco / Origen', 'Monto ($ USD)', 'Referencia', 'Comprobante']
+                                    df_disp_pagos['Monto ($ USD)'] = df_disp_pagos['Monto ($ USD)'].apply(lambda x: f"${float(x):,.2f}")
+                                    
+                                    st.dataframe(
+                                        df_disp_pagos,
+                                        column_config={
+                                            "Comprobante": st.column_config.LinkColumn("Comprobante", display_text="📎 Ver Documento")
+                                        },
+                                        use_container_width=True,
+                                        hide_index=True
+                                    )
+                                else:
+                                    st.info("ℹ️ No hay abonos registrados aún para esta Invoice.")
 
                         res_notas = supabase.table("notas_embarque").select("*").eq("num_invoice", selected_invoice).order("id", desc=True).execute()
                         df_notas_emb = pd.DataFrame(res_notas.data) if res_notas.data else pd.DataFrame()
@@ -1191,11 +1209,45 @@ elif "Pagos Internacionales" in menu:
         st.warning("⚠️ Primero debe registrar al menos un embarque para asignarle pagos.")
     else:
         invoices_map = {row['num_invoice']: f"{row['num_invoice']} - {row['fabricante']} (Contenedor: {row['num_contenedor']})" for _, row in df_emb.iterrows()}
-        tab_nuevo, tab_historico, tab_editar = st.tabs([
+        tab_listado, tab_nuevo, tab_historico, tab_editar = st.tabs([
+            "📜 Historial General de Pagos",
             "➕ Registrar Nuevo Pago", 
             "✅ Saldar Deuda Histórica", 
             "✏️ Editar / Eliminar Pago Existente"
         ])
+
+        with tab_listado:
+            st.subheader("📜 Historial de Pagos y Transferencias Registradas")
+            res_all_p = supabase.table("pagos_embarques").select("*").order("fecha_pago", desc=True).execute()
+            df_all_p = pd.DataFrame(res_all_p.data) if res_all_p.data else pd.DataFrame()
+
+            if df_all_p.empty:
+                st.info("No se han registrado pagos en el sistema aún.")
+            else:
+                col_m1, col_m2 = st.columns(2)
+                tot_pago_fabrica = df_all_p[df_all_p['tipo_pago'] == 'Pago a Fábrica']['monto'].sum()
+                tot_pago_ff = df_all_p[df_all_p['tipo_pago'] == 'Pago a Freight Forwarder']['monto'].sum()
+                col_m1.metric("Total Pagado a Fábricas", f"${tot_pago_fabrica:,.2f} USD")
+                col_m2.metric("Total Pagado a Freight Forwarders", f"${tot_pago_ff:,.2f} USD")
+
+                st.markdown("---")
+                filtro_inv_pago = st.selectbox("Filtrar por Invoice (Opcional):", ["Todas"] + list(df_all_p['num_invoice'].unique()))
+                df_filt_p = df_all_p.copy()
+                if filtro_inv_pago != "Todas":
+                    df_filt_p = df_filt_p[df_filt_p['num_invoice'] == filtro_inv_pago]
+
+                df_show_p = df_filt_p[['num_invoice', 'fecha_pago', 'tipo_pago', 'banco', 'monto', 'referencia', 'path_comprobante']].copy()
+                df_show_p.columns = ['N° Invoice', 'Fecha Pago', 'Tipo de Pago', 'Banco / Origen', 'Monto ($ USD)', 'N° Referencia', 'Comprobante']
+                df_show_p['Monto ($ USD)'] = df_show_p['Monto ($ USD)'].apply(lambda x: f"${float(x):,.2f}")
+
+                st.dataframe(
+                    df_show_p,
+                    column_config={
+                        "Comprobante": st.column_config.LinkColumn("Comprobante", display_text="📎 Ver Documento")
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
 
         with tab_nuevo:
             st.subheader("➕ Registrar Nuevo Abono / Pago")
@@ -1270,6 +1322,12 @@ elif "Pagos Internacionales" in menu:
                             "banco": "CIERRE HISTÓRICO / SINC. DEUDA", "monto": monto_a_registrar,
                             "fecha_pago": str(date.today()), "referencia": ref_saldar_input, "path_comprobante": None
                         }).execute()
+
+                        # Cambio automático de estatus a 'En Producción' si estaba en 'Pendiente Pago'
+                        res_c = supabase.table("embarques").select("estatus").eq("num_invoice", selected_inv_hist).execute()
+                        if res_c.data and res_c.data[0]['estatus'] == "Pendiente Pago":
+                            supabase.table("embarques").update({"estatus": "En Producción"}).eq("num_invoice", selected_inv_hist).execute()
+
                         st.success(f"🎉 Factura {selected_inv_hist} saldada exitosamente!")
                         st.rerun()
 
