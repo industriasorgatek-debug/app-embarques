@@ -956,7 +956,7 @@ elif menu == "📋 Control de Embarques":
                                     use_container_width=True
                                 )
 
-                        if role == "almacen":
+                     if role == "almacen":
                             if row_data['estatus'] in ["En Aduanas", "En Tránsito 1", "En Tránsito 2", "En Tránsito 3"]:
                                 if st.button("✅ Marcar como ENTREGADO", type="primary"):
                                     today_str = str(date.today())
