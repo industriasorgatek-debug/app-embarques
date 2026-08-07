@@ -280,9 +280,15 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
     bl = str(num_bl).strip().upper() if pd.notna(num_bl) else ""
     nav = str(naviera).strip().upper() if pd.notna(naviera) else ""
     
-    ref = cont if cont and cont not in ['NONE', 'NAN', ''] else bl
-    if not ref or ref in ['NONE', 'NAN', '']:
-        return None, None, "⚠️ Sin Contenedor / BL asignado"
+    # Prioridad: Usar N° de BL primero. Si no existe, usar el N° de Contenedor como alternativa.
+    if bl and bl not in ['NONE', 'NAN', '']:
+        ref = bl
+        is_bl = True
+    elif cont and cont not in ['NONE', 'NAN', '']:
+        ref = cont
+        is_bl = False
+    else:
+        return None, None, "⚠️ Sin BL / Contenedor asignado"
 
     encoded_ref = urllib.parse.quote(ref)
     
@@ -291,19 +297,24 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
     elif "MAERSK" in nav:
         url, label = f"https://www.maersk.com/tracking/{encoded_ref}", "🌐 Rastrear en Maersk"
     elif "CMA" in nav:
-        url, label = f"https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy=Container&Reference={encoded_ref}", "🌐 Rastrear en CMA CGM"
+        search_by = "BL" if is_bl else "Container"
+        url, label = f"https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy={search_by}&Reference={encoded_ref}", "🌐 Rastrear en CMA CGM"
     elif "HAPAG" in nav:
-        url, label = f"https://www.hapag-lloyd.com/en/online-business/track/track-by-container.html?container={encoded_ref}", "🌐 Rastrear en Hapag-Lloyd"
+        path = "track-by-booking-bl.html?bl=" if is_bl else "track-by-container.html?container="
+        url, label = f"https://www.hapag-lloyd.com/en/online-business/track/{path}{encoded_ref}", "🌐 Rastrear en Hapag-Lloyd"
     elif "ONE" in nav:
-        url, label = f"https://ecomm.one-line.com/one-ecom/cargo-tracking?searchType=C&number={encoded_ref}", "🌐 Rastrear en ONE Line"
+        stype = "B" if is_bl else "C"
+        url, label = f"https://ecomm.one-line.com/one-ecom/cargo-tracking?searchType={stype}&number={encoded_ref}", "🌐 Rastrear en ONE Line"
     elif "COSCO" in nav:
-        url, label = f"https://lines.coscoshipping.com/ebusiness/cargo-tracking?type=CONTAINER_NO&number={encoded_ref}", "🌐 Rastrear en COSCO"
+        stype = "BL_NO" if is_bl else "CONTAINER_NO"
+        url, label = f"https://lines.coscoshipping.com/ebusiness/cargo-tracking?type={stype}&number={encoded_ref}", "🌐 Rastrear en COSCO"
     elif "EVERGREEN" in nav:
         url, label = "https://www.shipmentlink.com/tms/servlet/TDB1_CargoTracking.do", "🌐 Portal Evergreen"
     else:
         url, label = f"https://www.searates.com/container/tracking/?container={encoded_ref}", "🌐 Rastrear en SeaRates"
 
-    return url, label, f"Ref: `{ref}` ({nav})"
+    tipo_lbl = "BL" if is_bl else "Contenedor"
+    return url, label, f"Ref: `{ref}` ({tipo_lbl} - {nav})"
 
 def get_eta_status(eta_val, estatus_val, row_data=None):
     if pd.isna(eta_val) or str(eta_val).strip() in ['', 'None', 'nan', 'NaT']:
