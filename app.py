@@ -956,16 +956,34 @@ elif menu == "📋 Control de Embarques":
                                     use_container_width=True
                                 )
 
-                     if role == "almacen":
+if role == "almacen":
                             if row_data['estatus'] in ["En Aduanas", "En Tránsito 1", "En Tránsito 2", "En Tránsito 3"]:
                                 if st.button("✅ Marcar como ENTREGADO", type="primary"):
                                     today_str = str(date.today())
                                     eta_date = safe_parse_date(row_data.get('eta'))
                                     dias_aduana_calc = max(0, (date.today() - eta_date).days)
                                     
-                                    supabase.table("embarques").update({
-                                        "estatus": "Entregado", "fecha_entrega": today_str, "dias_en_aduana": dias_aduana_calc
-                                    }).eq("num_invoice", selected_invoice).execute()
+                                    # Intentos seguros de actualización con tolerancia a columnas faltantes
+                                    try:
+                                        # Intento 1: Actualización completa (Estatus, Fecha y Días)
+                                        supabase.table("embarques").update({
+                                            "estatus": "Entregado",
+                                            "fecha_entrega": today_str,
+                                            "dias_en_aduana": dias_aduana_calc
+                                        }).eq("num_invoice", selected_invoice).execute()
+                                    except Exception:
+                                        try:
+                                            # Intento 2: Si no existe la columna 'dias_en_aduana'
+                                            supabase.table("embarques").update({
+                                                "estatus": "Entregado",
+                                                "fecha_entrega": today_str
+                                            }).eq("num_invoice", selected_invoice).execute()
+                                        except Exception:
+                                            # Intento 3: Si solo existe la columna 'estatus'
+                                            supabase.table("embarques").update({
+                                                "estatus": "Entregado"
+                                            }).eq("num_invoice", selected_invoice).execute()
+
                                     st.success(f"¡Estatus actualizado a 'Entregado'! ({dias_aduana_calc} días en aduana).")
                                     st.rerun()
 
