@@ -297,8 +297,8 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
     elif "MAERSK" in nav:
         url, label = f"https://www.maersk.com/tracking/{encoded_ref}", "🌐 Rastrear en Maersk"
     elif "CMA" in nav:
-        search_by = "BL" if is_bl else "Container"
-        url, label = f"https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy={search_by}&Reference={encoded_ref}", "🌐 Rastrear en CMA CGM"
+        # Usamos el portal ilimitado de Track-Trace BOL para CMA CGM
+        url, label = f"https://www.track-trace.com/bol", "🌐 Rastrear CMA CGM en Track-Trace"
     elif "HAPAG" in nav:
         path = "track-by-booking-bl.html?bl=" if is_bl else "track-by-container.html?container="
         url, label = f"https://www.hapag-lloyd.com/en/online-business/track/{path}{encoded_ref}", "🌐 Rastrear en Hapag-Lloyd"
@@ -309,9 +309,9 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
         stype = "BL_NO" if is_bl else "CONTAINER_NO"
         url, label = f"https://lines.coscoshipping.com/ebusiness/cargo-tracking?type={stype}&number={encoded_ref}", "🌐 Rastrear en COSCO"
     elif "EVERGREEN" in nav:
-        url, label = "https://www.shipmentlink.com/tms/servlet/TDB1_CargoTracking.do", "🌐 Portal Evergreen"
+        url, label = f"https://www.track-trace.com/bol", "🌐 Rastrear Evergreen en Track-Trace"
     else:
-        url, label = f"https://www.searates.com/container/tracking/?container={encoded_ref}", "🌐 Rastrear en SeaRates"
+        url, label = f"https://www.track-trace.com/bol", "🌐 Rastrear en Track-Trace"
 
     tipo_lbl = "BL" if is_bl else "Contenedor"
     return url, label, f"Ref: `{ref}` ({tipo_lbl} - {nav})"
