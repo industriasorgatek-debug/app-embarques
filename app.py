@@ -19,10 +19,10 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # -------------------------------------------------------------
-# CONEXIÓN A SUPABASE
+# CONEXIÓN A SUPABASE (SEGURO VÍA SECRETS)
 # -------------------------------------------------------------
-SUPABASE_URL = "https://drletxlyrnraprqierrr.supabase.co"
-SUPABASE_KEY = "sb_publishable_4ZcWovp88QQvCRgMBNFqWQ_UbKLOH2v"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 @st.cache_resource
 def init_supabase() -> Client:
