@@ -314,7 +314,7 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
         url, label = f"https://connect.track-trace.com/{tt_type}/{encoded_ref}", "🌐 Rastrear Evergreen"
     elif "ZIM" in nav:
         tt_type = "bol" if is_bl else "container"
-        url, label = f"https://zim.com/es/tools/track-a-shipment?consnumber={tt_type}/{encoded_ref}", "🌐 Rastrear ZIM
+        url, label = f"https://zim.com/es/tools/track-a-shipment?consnumber={tt_type}/{encoded_ref}", "🌐 Rastrear ZIM"
     else:
         tt_type = "bol" if is_bl else "container"
         url, label = f"https://connect.track-trace.com/{tt_type}/{encoded_ref}", "🌐 Rastrear en Track-Trace"
