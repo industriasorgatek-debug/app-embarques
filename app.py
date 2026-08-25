@@ -82,7 +82,7 @@ PINS = {
     "1111": {"dept": "Almacén", "role": "almacen"}
 }
 
-NAVIERAS = ["CMA CGM", "HAPAG-LLOYD", "MAERSK", "ONE", "MSC", "COSCO", "EVERGREEN", "OTRO"]
+NAVIERAS = ["CMA CGM", "HAPAG-LLOYD", "MAERSK", "ONE", "MSC", "COSCO", "EVERGREEN", "ZIM", "OTRO"]
 
 ESTATUS_LISTA = [
     "Pendiente Pago",
