@@ -1,3 +1,6 @@
+Aquí tienes el código completo y actualizado listo para copiar y pegar
+directamente en tu archivo de GitHub:
+
 import streamlit as st
 import pandas as pd
 import io
@@ -12,7 +15,6 @@ from supabase import create_client, Client
 # -------------------------------------------------------------
 st.set_page_config(page_title="Control de Embarques", layout="wide")
 
-# Importación para la generación del PDF
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -31,8 +33,36 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 
 # -------------------------------------------------------------
-# FUNCIONES DE CONFIGURACIÓN GLOBAL Y CATÁLOGOS
+# SERVICIO DE ALERTAS AUTOMÁTICAS (TELEGRAM)
 # -------------------------------------------------------------
+def enviar_alerta_telegram(mensaje):
+    try:
+        token = st.secrets.get("TELEGRAM_BOT_TOKEN")
+        chat_id = st.secrets.get("TELEGRAM_CHAT_ID")
+        if token and chat_id and str(token).strip() != "" and str(chat_id).strip() != "":
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            payload = {"chat_id": chat_id, "text": mensaje, "parse_mode": "Markdown"}
+            requests.post(url, data=payload, timeout=5)
+            return True
+    except Exception:
+        pass
+    return False
+
+# -------------------------------------------------------------
+# FUNCIONES AUXILIARES DE MONEDA Y FORMATO
+# -------------------------------------------------------------
+MONEDAS = {"USD": "$", "EUR": "€", "RMB": "¥"}
+LISTA_MONEDAS = ["USD", "EUR", "RMB"]
+
+def fmt_moneda(monto, cod_moneda="USD"):
+    mon_clean = str(cod_moneda).upper().strip() if pd.notna(cod_moneda) else "USD"
+    simbolo = MONEDAS.get(mon_clean, "$")
+    try:
+        val = float(monto) if pd.notna(monto) else 0.0
+    except Exception:
+        val = 0.0
+    return f"{simbolo} {val:,.2f} {mon_clean}"
+
 def get_maintenance_mode():
     try:
         res = supabase.table("app_config").select("value").eq("key", "modo_mantenimiento").execute()
@@ -50,7 +80,6 @@ def set_maintenance_mode(is_active: bool):
     except Exception as e:
         st.error(f"Error actualizando Modo Mantenimiento en Supabase: {e}")
 
-# Funciones de consulta de catálogos
 def get_catalogo_proveedores(tipo_filtro=None):
     try:
         query = supabase.table("catalogo_proveedores").select("*")
@@ -444,9 +473,11 @@ def generar_pdf_embarque(row_data, df_pagos, df_notas=None):
         ('TOPPADDING', (0,0), (-1,-1), 4),
         ('BOTTOMPADDING', (0,0), (-1,-1), 4),
     ]))
-    elements.extend([t2, Spacer(1, 10), Paragraph("💰 Resumen Financiero (Fábrica y Flete)", subtitle_style), Spacer(1, 4)])
+    elements.extend([t2, Spacer(1, 10), Paragraph("💰 Resumen Financiero Multimoneda (Fábrica y Flete)", subtitle_style), Spacer(1, 4)])
 
-    # CÁLCULOS FINANCIEROS (FÁBRICA + FLETE)
+    moneda_fab = str(row_data.get('moneda_factura', 'USD')).upper()
+    moneda_fle = str(row_data.get('moneda_flete', 'USD')).upper()
+
     monto_factura = float(row_data.get('monto_factura', 0.0)) if pd.notna(row_data.get('monto_factura')) else 0.0
     monto_flete = float(row_data.get('monto_flete', 0.0)) if pd.notna(row_data.get('monto_flete')) else 0.0
 
@@ -459,16 +490,16 @@ def generar_pdf_embarque(row_data, df_pagos, df_notas=None):
     saldo_pendiente_flete = max(0.0, monto_flete - monto_flete_pagado)
 
     data_finanzas = [
-        [Paragraph("<b>FÁBRICA — Factura:</b>", body_style), f"${monto_factura:,.2f}",
-         Paragraph("<b>Abonado Fábrica:</b>", body_style), f"${monto_abonado_fabrica:,.2f}",
-         Paragraph("<b>Saldo Pend. Fábrica:</b>", body_style), f"${saldo_pendiente_fabrica:,.2f}"],
+        [Paragraph("<b>FÁBRICA — Factura:</b>", body_style), fmt_moneda(monto_factura, moneda_fab),
+         Paragraph("<b>Abonado Fábrica:</b>", body_style), fmt_moneda(monto_abonado_fabrica, moneda_fab),
+         Paragraph("<b>Saldo Pendiente:</b>", body_style), fmt_moneda(saldo_pendiente_fabrica, moneda_fab)],
         
-        [Paragraph("<b>FLETE — Factura:</b>", body_style), f"${monto_flete:,.2f}",
-         Paragraph("<b>Pagado Flete:</b>", body_style), f"${monto_flete_pagado:,.2f}",
-         Paragraph("<b>Saldo Pend. Flete:</b>", body_style), f"${saldo_pendiente_flete:,.2f}"]
+        [Paragraph("<b>FLETE — Factura:</b>", body_style), fmt_moneda(monto_flete, moneda_fle),
+         Paragraph("<b>Pagado Flete:</b>", body_style), fmt_moneda(monto_flete_pagado, moneda_fle),
+         Paragraph("<b>Saldo Pendiente:</b>", body_style), fmt_moneda(saldo_pendiente_flete, moneda_fle)]
     ]
 
-    t3 = Table(data_finanzas, colWidths=[110, 75, 95, 75, 95, 70])
+    t3 = Table(data_finanzas, colWidths=[110, 80, 95, 80, 95, 60])
     t3.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E0F2FE')),
         ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#FEF3C7')),
@@ -482,12 +513,13 @@ def generar_pdf_embarque(row_data, df_pagos, df_notas=None):
     if df_pagos.empty:
         elements.append(Paragraph("<i>No existen pagos registrados para este embarque.</i>", body_style))
     else:
-        table_data_pagos = [[Paragraph("Tipo Pago", header_cell_style), Paragraph("Banco", header_cell_style), Paragraph("Monto ($)", header_cell_style), Paragraph("Fecha", header_cell_style), Paragraph("Referencia", header_cell_style)]]
+        table_data_pagos = [[Paragraph("Tipo Pago", header_cell_style), Paragraph("Banco", header_cell_style), Paragraph("Monto", header_cell_style), Paragraph("Fecha", header_cell_style), Paragraph("Referencia", header_cell_style)]]
         for _, p in df_pagos.iterrows():
+            mon_p = p.get('moneda_pago', 'USD')
             table_data_pagos.append([
                 Paragraph(str(p['tipo_pago']), body_style),
                 Paragraph(str(p['banco']), body_style),
-                Paragraph(f"${p['monto']:,.2f}", body_style),
+                Paragraph(fmt_moneda(p['monto'], mon_p), body_style),
                 Paragraph(str(p['fecha_pago']), body_style),
                 Paragraph(str(p['referencia']), body_style)
             ])
@@ -702,23 +734,36 @@ if menu == "📊 Dashboard General":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        st.subheader("⚡ Acciones Rápidas y Filtrado Directo")
-        col_act1, col_act2, col_act3 = st.columns(3)
+        st.subheader("⚡ Acciones Rápidas y Alertas Telegram")
+        col_act1, col_act2, col_act3, col_act4 = st.columns(4)
         
         with col_act1:
-            if st.button("🔎 Ver Cargas Arribadas en Puerto", use_container_width=True, type="primary"):
+            if st.button("🔎 Cargas en Puerto", use_container_width=True, type="primary"):
                 st.session_state.pending_nav_menu = "📋 Control de Embarques"
                 st.rerun()
 
         with col_act2:
-            if st.button("📅 Ver Calendario de Arribos Próximos", use_container_width=True):
+            if st.button("📅 Arribos Próximos", use_container_width=True):
                 st.session_state.pending_nav_menu = "📋 Control de Embarques"
                 st.rerun()
 
         with col_act3:
-            if st.button("📋 Ir a Lista Completa de Embarques", use_container_width=True):
+            if st.button("📋 Lista de Embarques", use_container_width=True):
                 st.session_state.pending_nav_menu = "📋 Control de Embarques"
                 st.rerun()
+
+        with col_act4:
+            if st.button("📲 Enviar Resumen a Telegram", use_container_width=True):
+                msg = f"🚢 *RESUMEN LOGÍSTICO AL DIA* ({today.strftime('%d/%m/%Y')}):\n\n"
+                msg += f"• *Cargas Activas en Tránsito:* {len(df_activas)}\n"
+                msg += f"• *Arribos Próximos (7 días):* {len(arribos_proximos)}\n"
+                msg += f"• *En Puerto / Aduanas:* {len(en_puerto)}\n"
+                msg += f"• *Entregadas este mes:* {len(entregadas_mes)}\n\n_Generado por Control de Embarques_"
+                
+                if enviar_alerta_telegram(msg):
+                    st.success("📲 ¡Alerta enviada a Telegram!")
+                else:
+                    st.warning("⚠️ No se pudo enviar (Verifica tus credenciales en Secrets).")
 
         st.markdown("---")
 
@@ -799,7 +844,6 @@ elif menu == "📋 Control de Embarques":
     else:
         invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
 
-        # COLUMNA DINÁMICA DE ESTADO FLETE / PRODUCCIÓN
         def check_pago_ff_o_prod(row):
             estatus = str(row.get('estatus', '')).strip()
             inv = row.get('num_invoice', '')
@@ -1050,6 +1094,8 @@ elif menu == "📋 Control de Embarques":
                                                 "estatus": "Entregado"
                                             }).eq("num_invoice", selected_invoice).execute()
 
+                                    enviar_alerta_telegram(f"📦 *EMBARQUE ENTREGADO EN ALMACÉN*\n\n• *Invoice:* {selected_invoice}\n• *Contenedor:* {row_data.get('num_contenedor')}\n• *Producto:* {row_data.get('producto')}\n• *Días en Aduana:* {dias_aduana_calc} día(s)\n• *Registrado por:* Almacén")
+
                                     st.success(f"¡Estatus actualizado a 'Entregado'! ({dias_aduana_calc} días en aduana).")
                                     st.rerun()
 
@@ -1057,7 +1103,10 @@ elif menu == "📋 Control de Embarques":
                         df_pagos_emb = pd.DataFrame(res_p_emb.data) if res_p_emb.data else pd.DataFrame()
 
                         if role == "admin":
-                            with st.expander(f"💰 **BALANCE FINANCIERO (FÁBRICA Y FLETE)** — Invoice: {selected_invoice}", expanded=True):
+                            moneda_fab = str(row_data.get('moneda_factura', 'USD')).upper()
+                            moneda_fle = str(row_data.get('moneda_flete', 'USD')).upper()
+
+                            with st.expander(f"💰 **BALANCE FINANCIERO MULTIMONEDA** — Invoice: {selected_invoice}", expanded=True):
                                 df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
                                 monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
                                 monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
@@ -1068,27 +1117,28 @@ elif menu == "📋 Control de Embarques":
                                 monto_flete = float(row_data.get('monto_flete', 0.0)) if pd.notna(row_data.get('monto_flete')) else 0.0
                                 saldo_pendiente_flete = max(0.0, monto_flete - monto_total_pagado_flete)
 
-                                st.markdown("##### 🏭 Factura de Fábrica")
+                                st.markdown(f"##### 🏭 Factura de Fábrica ({moneda_fab})")
                                 m1, m2, m3 = st.columns(3)
-                                m1.metric("Monto Factura", f"${monto_factura:,.2f} USD")
-                                m2.metric("Abonado Fábrica", f"${monto_total_pagado_fabrica:,.2f} USD")
-                                m3.metric("Saldo Pendiente Fábrica", f"${saldo_pendiente_fabrica:,.2f} USD")
+                                m1.metric("Monto Factura", fmt_moneda(monto_factura, moneda_fab))
+                                m2.metric("Abonado Fábrica", fmt_moneda(monto_total_pagado_fabrica, moneda_fab))
+                                m3.metric("Saldo Pendiente Fábrica", fmt_moneda(saldo_pendiente_fabrica, moneda_fab))
 
-                                st.markdown("##### 🚢 Factura de Flete Internacional")
+                                st.markdown(f"##### 🚢 Factura de Flete Internacional ({moneda_fle})")
                                 f1, f2, f3 = st.columns(3)
-                                f1.metric("Monto Factura Flete", f"${monto_flete:,.2f} USD")
-                                f2.metric("Pagado a Forwarder", f"${monto_total_pagado_flete:,.2f} USD")
-                                f3.metric("Saldo Pendiente Flete", f"${saldo_pendiente_flete:,.2f} USD")
+                                f1.metric("Monto Factura Flete", fmt_moneda(monto_flete, moneda_fle))
+                                f2.metric("Pagado a Forwarder", fmt_moneda(monto_total_pagado_flete, moneda_fle))
+                                f3.metric("Saldo Pendiente Flete", fmt_moneda(saldo_pendiente_flete, moneda_fle))
 
                                 st.markdown("---")
                                 st.markdown("##### 🧾 Detalle de Pagos Registrados:")
                                 if not df_pagos_emb.empty:
-                                    df_disp_pagos = df_pagos_emb[['fecha_pago', 'tipo_pago', 'banco', 'monto', 'referencia', 'path_comprobante']].copy()
-                                    df_disp_pagos.columns = ['Fecha', 'Tipo de Pago', 'Banco / Origen', 'Monto ($ USD)', 'Referencia', 'Comprobante']
-                                    df_disp_pagos['Monto ($ USD)'] = df_disp_pagos['Monto ($ USD)'].apply(lambda x: f"${float(x):,.2f}")
+                                    df_disp_pagos = df_pagos_emb[['fecha_pago', 'tipo_pago', 'banco', 'monto', 'moneda_pago', 'referencia', 'path_comprobante']].copy()
+                                    df_disp_pagos['Monto'] = df_disp_pagos.apply(lambda r: fmt_moneda(r['monto'], r.get('moneda_pago', 'USD')), axis=1)
+                                    df_disp_pagos_show = df_disp_pagos[['fecha_pago', 'tipo_pago', 'banco', 'Monto', 'referencia', 'path_comprobante']]
+                                    df_disp_pagos_show.columns = ['Fecha', 'Tipo de Pago', 'Banco / Origen', 'Monto', 'Referencia', 'Comprobante']
                                     
                                     st.dataframe(
-                                        df_disp_pagos,
+                                        df_disp_pagos_show,
                                         column_config={
                                             "Comprobante": st.column_config.LinkColumn("Comprobante", display_text="📎 Ver Documento")
                                         },
@@ -1104,7 +1154,6 @@ elif menu == "📋 Control de Embarques":
                         if role == "admin":
                             col_b1, col_b2 = st.columns(2)
                             with col_b1:
-                                # CORRECCIÓN: REDIRECCIÓN AUTOMÁTICA AL EDITAR
                                 if st.button(f"✏️ Editar Embarque ({selected_invoice})", type="primary", use_container_width=True):
                                     st.session_state.editing_invoice = selected_invoice
                                     st.session_state.pending_nav_menu = "✏️ Editar / Actualizar Embarque"
@@ -1278,10 +1327,10 @@ elif menu == "⚙️ Catálogos Maestros" and role == "admin":
 
 # --- MENÚ 3: PAGOS INTERNACIONALES ---
 elif "Pagos Internacionales" in menu:
-    st.title("💳 Registro y Control de Pagos Internacionales")
+    st.title("💳 Registro y Control de Pagos Internacionales (Multimoneda)")
     st.caption("Módulo exclusivo para Compras: Administra, modifica, elimina transferencias o salda deudas históricas")
 
-    res_emb = supabase.table("embarques").select("num_invoice, fabricante, num_contenedor, monto_factura, estatus").execute()
+    res_emb = supabase.table("embarques").select("num_invoice, fabricante, num_contenedor, monto_factura, estatus, moneda_factura").execute()
     df_emb = pd.DataFrame(res_emb.data) if res_emb.data else pd.DataFrame()
     
     if df_emb.empty:
@@ -1306,8 +1355,8 @@ elif "Pagos Internacionales" in menu:
                 col_m1, col_m2 = st.columns(2)
                 tot_pago_fabrica = df_all_p[df_all_p['tipo_pago'] == 'Pago a Fábrica']['monto'].sum()
                 tot_pago_ff = df_all_p[df_all_p['tipo_pago'] == 'Pago a Freight Forwarder']['monto'].sum()
-                col_m1.metric("Total Pagado a Fábricas", f"${tot_pago_fabrica:,.2f} USD")
-                col_m2.metric("Total Pagado a Freight Forwarders", f"${tot_pago_ff:,.2f} USD")
+                col_m1.metric("Total Pagado a Fábricas (Abonos)", f"${tot_pago_fabrica:,.2f}")
+                col_m2.metric("Total Pagado a Freight Forwarders", f"${tot_pago_ff:,.2f}")
 
                 st.markdown("---")
                 filtro_inv_pago = st.selectbox("Filtrar por Invoice (Opcional):", ["Todas"] + list(df_all_p['num_invoice'].unique()))
@@ -1315,12 +1364,13 @@ elif "Pagos Internacionales" in menu:
                 if filtro_inv_pago != "Todas":
                     df_filt_p = df_filt_p[df_filt_p['num_invoice'] == filtro_inv_pago]
 
-                df_show_p = df_filt_p[['num_invoice', 'fecha_pago', 'tipo_pago', 'banco', 'monto', 'referencia', 'path_comprobante']].copy()
-                df_show_p.columns = ['N° Invoice', 'Fecha Pago', 'Tipo de Pago', 'Banco / Origen', 'Monto ($ USD)', 'N° Referencia', 'Comprobante']
-                df_show_p['Monto ($ USD)'] = df_show_p['Monto ($ USD)'].apply(lambda x: f"${float(x):,.2f}")
+                df_show_p = df_filt_p[['num_invoice', 'fecha_pago', 'tipo_pago', 'banco', 'monto', 'moneda_pago', 'referencia', 'path_comprobante']].copy()
+                df_show_p['Monto'] = df_show_p.apply(lambda r: fmt_moneda(r['monto'], r.get('moneda_pago', 'USD')), axis=1)
+                df_show_p_disp = df_show_p[['num_invoice', 'fecha_pago', 'tipo_pago', 'banco', 'Monto', 'referencia', 'path_comprobante']]
+                df_show_p_disp.columns = ['N° Invoice', 'Fecha Pago', 'Tipo de Pago', 'Banco / Origen', 'Monto', 'N° Referencia', 'Comprobante']
 
                 st.dataframe(
-                    df_show_p,
+                    df_show_p_disp,
                     column_config={
                         "Comprobante": st.column_config.LinkColumn("Comprobante", display_text="📎 Ver Documento")
                     },
@@ -1341,7 +1391,11 @@ elif "Pagos Internacionales" in menu:
                     selected_inv_key = st.selectbox("Seleccione Embarque / Invoice *", inv_keys, index=default_idx, format_func=lambda x: invoices_map[x], key="new_pago_inv")
                     tipo_pago = st.selectbox("Tipo de Pago *", TIPO_PAGO_LISTA, key="new_pago_tipo")
                     banco_pago = st.selectbox("Banco / Plataforma de Origen *", BANCOS_LISTA, key="new_pago_banco")
-                    monto_pago = st.number_input("Monto del Abono ($ USD) *", min_value=0.01, step=100.0, format="%.2f", key="new_pago_monto")
+                    
+                    c_m1, c_m2 = st.columns([1, 2])
+                    with c_m1: moneda_pago = st.selectbox("Moneda", LISTA_MONEDAS, index=0, key="new_pago_mon")
+                    with c_m2: monto_pago = st.number_input("Monto del Abono *", min_value=0.01, step=100.0, format="%.2f", key="new_pago_monto")
+
                 with col_p2:
                     fecha_pago = st.date_input("Fecha de Transferencia", value=date.today(), key="new_pago_fecha")
                     num_ref = st.text_input("Número de Referencia / Comprobante *", key="new_pago_ref")
@@ -1357,7 +1411,7 @@ elif "Pagos Internacionales" in menu:
                         
                         supabase.table("pagos_embarques").insert({
                             "num_invoice": selected_inv_key, "tipo_pago": tipo_pago, "banco": banco_pago,
-                            "monto": monto_pago, "fecha_pago": str(fecha_pago), "referencia": num_ref,
+                            "monto": monto_pago, "moneda_pago": moneda_pago, "fecha_pago": str(fecha_pago), "referencia": num_ref,
                             "path_comprobante": file_path_pago
                         }).execute()
                         
@@ -1366,8 +1420,10 @@ elif "Pagos Internacionales" in menu:
                             if res_c.data and res_c.data[0]['estatus'] == "Pendiente Pago":
                                 supabase.table("embarques").update({"estatus": "En Producción"}).eq("num_invoice", selected_inv_key).execute()
 
+                        enviar_alerta_telegram(f"💳 *NUEVO PAGO REGISTRADO*\n\n• *Invoice:* {selected_inv_key}\n• *Tipo:* {tipo_pago}\n• *Monto:* {fmt_moneda(monto_pago, moneda_pago)}\n• *Banco:* {banco_pago}\n• *Referencia:* {num_ref}")
+
                         st.session_state.preselected_pago_invoice = None
-                        st.success(f"✅ Pago ({tipo_pago}) de ${monto_pago:,.2f} USD registrado exitosamente.")
+                        st.success(f"✅ Pago ({tipo_pago}) de {fmt_moneda(monto_pago, moneda_pago)} registrado exitosamente.")
                         st.rerun()
 
         with tab_historico:
@@ -1375,6 +1431,7 @@ elif "Pagos Internacionales" in menu:
             selected_inv_hist = st.selectbox("Seleccione Embarque / Invoice a Saldar *", list(invoices_map.keys()), format_func=lambda x: invoices_map[x], key="hist_pago_inv_sel")
             
             row_hist = df_emb[df_emb['num_invoice'] == selected_inv_hist].iloc[0]
+            moneda_hist = row_hist.get('moneda_factura', 'USD')
             monto_fact = float(row_hist['monto_factura']) if pd.notna(row_hist.get('monto_factura')) else 0.0
             
             res_p_hist = supabase.table("pagos_embarques").select("monto").eq("num_invoice", selected_inv_hist).eq("tipo_pago", "Pago a Fábrica").execute()
@@ -1383,13 +1440,13 @@ elif "Pagos Internacionales" in menu:
             saldo_pend_hist = max(0.0, monto_fact - monto_abonado_hist)
             
             col_h1, col_h2, col_h3 = st.columns(3)
-            col_h1.metric("Monto Total Factura", f"${monto_fact:,.2f} USD")
-            col_h2.metric("Abonos Registrados", f"${monto_abonado_hist:,.2f} USD")
-            col_h3.metric("Saldo Pendiente Actual", f"${saldo_pend_hist:,.2f} USD")
+            col_h1.metric("Monto Total Factura", fmt_moneda(monto_fact, moneda_hist))
+            col_h2.metric("Abonos Registrados", fmt_moneda(monto_abonado_hist, moneda_hist))
+            col_h3.metric("Saldo Pendiente Actual", fmt_moneda(saldo_pend_hist, moneda_hist))
             
             st.markdown("---")
             with st.form("form_saldar_deuda_historica"):
-                monto_saldar_input = st.number_input("Monto a Saldar ($ USD) *", value=float(saldo_pend_hist if saldo_pend_hist > 0 else monto_fact), min_value=0.0, step=100.0, format="%.2f")
+                monto_saldar_input = st.number_input(f"Monto a Saldar ({moneda_hist}) *", value=float(saldo_pend_hist if saldo_pend_hist > 0 else monto_fact), min_value=0.0, step=100.0, format="%.2f")
                 ref_saldar_input = st.text_input("Nota / Referencia", value="PAGO_HISTORICO_OK")
                 btn_saldar_submit = st.form_submit_button("✅ Marcar Factura como Totalmente Pagada", type="primary", use_container_width=True)
                 
@@ -1398,7 +1455,7 @@ elif "Pagos Internacionales" in menu:
                     if monto_a_registrar > 0:
                         supabase.table("pagos_embarques").insert({
                             "num_invoice": selected_inv_hist, "tipo_pago": "Pago a Fábrica",
-                            "banco": "CIERRE HISTÓRICO / SINC. DEUDA", "monto": monto_a_registrar,
+                            "banco": "CIERRE HISTÓRICO / SINC. DEUDA", "monto": monto_a_registrar, "moneda_pago": moneda_hist,
                             "fecha_pago": str(date.today()), "referencia": ref_saldar_input, "path_comprobante": None
                         }).execute()
 
@@ -1415,7 +1472,7 @@ elif "Pagos Internacionales" in menu:
             df_all_pagos = pd.DataFrame(res_all_p.data) if res_all_p.data else pd.DataFrame()
 
             if not df_all_pagos.empty:
-                pagos_map = {row['id']: f"ID #{row['id']} | Inv: {row['num_invoice']} | [{row['tipo_pago']}] | Ref: {row['referencia']} | Monto: ${row['monto']:,.2f} USD" for _, row in df_all_pagos.iterrows()}
+                pagos_map = {row['id']: f"ID #{row['id']} | Inv: {row['num_invoice']} | [{row['tipo_pago']}] | Ref: {row['referencia']} | Monto: {fmt_moneda(row['monto'], row.get('moneda_pago','USD'))}" for _, row in df_all_pagos.iterrows()}
                 selected_pago_id = st.selectbox("Selecciona el pago que deseas modificar o eliminar:", list(pagos_map.keys()), format_func=lambda x: pagos_map[x])
                 pago_row = df_all_pagos[df_all_pagos['id'] == selected_pago_id].iloc[0]
 
@@ -1424,7 +1481,12 @@ elif "Pagos Internacionales" in menu:
                     with col_e1:
                         tipo_pago_edit = st.selectbox("Tipo de Pago", TIPO_PAGO_LISTA, index=TIPO_PAGO_LISTA.index(pago_row['tipo_pago']) if pago_row['tipo_pago'] in TIPO_PAGO_LISTA else 0)
                         banco_pago_edit = st.selectbox("Banco de Origen", BANCOS_LISTA, index=BANCOS_LISTA.index(pago_row['banco']) if pago_row['banco'] in BANCOS_LISTA else 0)
-                        monto_pago_edit = st.number_input("Monto del Abono ($ USD)", min_value=0.01, value=float(pago_row['monto']), step=100.0, format="%.2f")
+                        
+                        mon_pago_curr = pago_row.get('moneda_pago', 'USD')
+                        c_me1, c_me2 = st.columns([1, 2])
+                        with c_me1: moneda_pago_edit = st.selectbox("Moneda", LISTA_MONEDAS, index=LISTA_MONEDAS.index(mon_pago_curr) if mon_pago_curr in LISTA_MONEDAS else 0)
+                        with c_me2: monto_pago_edit = st.number_input("Monto del Abono", min_value=0.01, value=float(pago_row['monto']), step=100.0, format="%.2f")
+
                     with col_e2:
                         fecha_pago_edit = st.date_input("Fecha del Pago", value=safe_parse_date(pago_row['fecha_pago']))
                         num_ref_edit = st.text_input("Número de Referencia", value=str(pago_row.get('referencia') or ''))
@@ -1437,7 +1499,7 @@ elif "Pagos Internacionales" in menu:
                 if submit_pago_edit:
                     new_path = upload_file_to_supabase(file_comp_edit, f"{pago_row['num_invoice']}_{num_ref_edit}", "COMP", bucket="comprobantes") if file_comp_edit else clean_url(pago_row.get('path_comprobante'))
                     supabase.table("pagos_embarques").update({
-                        "tipo_pago": tipo_pago_edit, "banco": banco_pago_edit, "monto": monto_pago_edit,
+                        "tipo_pago": tipo_pago_edit, "banco": banco_pago_edit, "monto": monto_pago_edit, "moneda_pago": moneda_pago_edit,
                         "fecha_pago": str(fecha_pago_edit), "referencia": num_ref_edit, "path_comprobante": new_path
                     }).eq("id", selected_pago_id).execute()
                     st.success("✅ Pago actualizado.")
@@ -1450,14 +1512,14 @@ elif "Pagos Internacionales" in menu:
 
 # --- MENÚ 4: CARGA MASIVA ---
 elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
-    st.title("📊 Carga Masiva de Embarques")
+    st.title("📊 Carga Masiva de Embarques (Multimoneda)")
     sample_data = pd.DataFrame([{
         "num_invoice": "INV-1001", "num_bl": "BL-998877", "num_contenedor": "MSCU1234567",
         "naviera": "MSC", "fabricante": "Tech Corp", "producto": "Preforma PET 20g Cristal",
         "origen": "China", "destino": "Venezuela", "eta": "2026-08-15",
         "estatus": "Pendiente Pago", "agente_carga": "DHL", "agente_aduanas": "Aduanas C.A.",
-        "consignatario": "Industrias Orgatek", "monto_factura": 25000.00, "monto_flete": 3500.00,
-        "fecha_listo_produccion": "2026-07-30"
+        "consignatario": "Industrias Orgatek", "monto_factura": 25000.00, "moneda_factura": "USD",
+        "monto_flete": 3500.00, "moneda_flete": "USD", "fecha_listo_produccion": "2026-07-30"
     }])
     csv_sample = sample_data.to_csv(index=False).encode('utf-8')
     st.download_button("📥 Descargar Plantilla de Ejemplo (CSV)", csv_sample, "plantilla_embarques.csv", "text/csv")
@@ -1484,7 +1546,9 @@ elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
                         "agente_carga": str(row.get('agente_carga', '')), "agente_aduanas": str(row.get('agente_aduanas', '')),
                         "consignatario": str(row.get('consignatario', '')), 
                         "monto_factura": float(row.get('monto_factura', 0.0)) if pd.notna(row.get('monto_factura')) else 0.0,
+                        "moneda_factura": str(row.get('moneda_factura', 'USD')).upper(),
                         "monto_flete": float(row.get('monto_flete', 0.0)) if pd.notna(row.get('monto_flete')) else 0.0,
+                        "moneda_flete": str(row.get('moneda_flete', 'USD')).upper(),
                         "fecha_listo_produccion": str(row.get('fecha_listo_produccion', '')) if pd.notna(row.get('fecha_listo_produccion')) else None
                     }
 
@@ -1525,8 +1589,13 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
             else:
                 fabricante = ""
 
-            monto_factura = st.number_input("Monto Total Factura Fábrica ($ USD)", min_value=0.0, step=100.0, format="%.2f")
-            monto_flete = st.number_input("Monto Factura Flete ($ USD)", min_value=0.0, step=100.0, format="%.2f")
+            cf1, cf2 = st.columns([1, 2])
+            with cf1: moneda_factura = st.selectbox("Moneda Fáb.", LISTA_MONEDAS, index=0)
+            with cf2: monto_factura = st.number_input("Factura Fábrica", min_value=0.0, step=100.0, format="%.2f")
+
+            cfl1, cfl2 = st.columns([1, 2])
+            with cfl1: moneda_flete = st.selectbox("Moneda Flete", LISTA_MONEDAS, index=0)
+            with cfl2: monto_flete = st.number_input("Factura Flete", min_value=0.0, step=100.0, format="%.2f")
             
             sel_prod = st.selectbox("Producto (Catálogo Maestros)", ["-- Seleccionar de Catálogo --", "-- Escribir Manualmente --"] + cat_prods)
             if sel_prod == "-- Escribir Manualmente --":
@@ -1600,9 +1669,13 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
                         "producto": producto, "num_bl": num_bl, "naviera": naviera,
                         "num_contenedor": num_contenedor, "eta": str(eta), "estatus": estatus,
                         "path_packing": p_pack, "path_invoice": p_inv, "path_flete": p_fle,
-                        "path_bl": p_bl, "monto_factura": monto_factura, "monto_flete": monto_flete,
+                        "path_bl": p_bl, "monto_factura": monto_factura, "moneda_factura": moneda_factura,
+                        "monto_flete": monto_flete, "moneda_flete": moneda_flete,
                         "fecha_listo_produccion": str(fecha_prod_input)
                     }).execute()
+                    
+                    enviar_alerta_telegram(f"🚢 *NUEVO EMBARQUE REGISTRADO*\n\n• *Invoice:* {num_invoice}\n• *Fabricante:* {fabricante}\n• *Producto:* {producto}\n• *Contenedor:* {num_contenedor}\n• *ETA:* {eta}")
+
                     st.success(f"✅ Embarque Invoice {num_invoice} guardado exitosamente.")
                 except Exception as e:
                     st.error(f"❌ La Invoice {num_invoice} ya existe o hubo un fallo: {e}")
@@ -1618,7 +1691,6 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
     else:
         invoices_list = list(df['num_invoice'].unique())
         
-        # PRE-SELECCIONAR INVOICE SI SE HIZO CLIC EN EL BOTÓN EDITAR
         default_inv_idx = 0
         if st.session_state.get("editing_invoice") in invoices_list:
             default_inv_idx = invoices_list.index(st.session_state.editing_invoice)
@@ -1631,8 +1703,17 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
             with col1:
                 num_invoice_edit = st.text_input("Número de Invoice", value=str(row['num_invoice']), disabled=True)
                 fabricante_edit = st.text_input("Fabricante / Proveedor", value=str(row.get('fabricante') or ''))
-                monto_factura_edit = st.number_input("Monto Total Factura Fábrica ($ USD)", min_value=0.0, value=float(row.get('monto_factura') or 0.0), step=100.0, format="%.2f")
-                monto_flete_edit = st.number_input("Monto Factura Flete ($ USD)", min_value=0.0, value=float(row.get('monto_flete') or 0.0), step=100.0, format="%.2f")
+                
+                mon_fab_curr = row.get('moneda_factura', 'USD')
+                cf1, cf2 = st.columns([1, 2])
+                with cf1: moneda_factura_edit = st.selectbox("Moneda Fáb.", LISTA_MONEDAS, index=LISTA_MONEDAS.index(mon_fab_curr) if mon_fab_curr in LISTA_MONEDAS else 0)
+                with cf2: monto_factura_edit = st.number_input("Factura Fábrica", min_value=0.0, value=float(row.get('monto_factura') or 0.0), step=100.0, format="%.2f")
+
+                mon_fle_curr = row.get('moneda_flete', 'USD')
+                cfl1, cfl2 = st.columns([1, 2])
+                with cfl1: moneda_flete_edit = st.selectbox("Moneda Flete", LISTA_MONEDAS, index=LISTA_MONEDAS.index(mon_fle_curr) if mon_fle_curr in LISTA_MONEDAS else 0)
+                with cfl2: monto_flete_edit = st.number_input("Factura Flete", min_value=0.0, value=float(row.get('monto_flete') or 0.0), step=100.0, format="%.2f")
+
                 producto_edit = st.text_input("Descripción del Producto", value=str(row.get('producto') or ''))
                 origen_edit = st.text_input("Origen", value=str(row.get('origen') or ''))
                 destino_edit = st.text_input("Destino", value=str(row.get('destino') or ''))
@@ -1677,7 +1758,8 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                     "naviera": naviera_edit, "num_contenedor": num_contenedor_edit, "eta": str(eta_edit),
                     "estatus": estatus_edit, "path_packing": p_pack, "path_invoice": p_inv,
                     "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit,
-                    "monto_flete": monto_flete_edit, "fecha_listo_produccion": str(fecha_prod_edit)
+                    "moneda_factura": moneda_factura_edit, "monto_flete": monto_flete_edit,
+                    "moneda_flete": moneda_flete_edit, "fecha_listo_produccion": str(fecha_prod_edit)
                 }
 
                 if estatus_edit == "Entregado" and row.get('estatus') != "Entregado":
@@ -1691,3 +1773,4 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error al guardar cambios: {e}")
+
