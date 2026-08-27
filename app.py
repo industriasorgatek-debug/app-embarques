@@ -1,6 +1,3 @@
-Aquí tienes el código completo y actualizado listo para copiar y pegar
-directamente en tu archivo de GitHub:
-
 import streamlit as st
 import pandas as pd
 import io
