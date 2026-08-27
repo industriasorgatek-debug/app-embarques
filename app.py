@@ -280,7 +280,6 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
     bl = str(num_bl).strip().upper() if pd.notna(num_bl) else ""
     nav = str(naviera).strip().upper() if pd.notna(naviera) else ""
     
-    # Prioridad: Usar N° de BL primero. Si no existe, usar el N° de Contenedor como alternativa.
     if bl and bl not in ['NONE', 'NAN', '']:
         ref = bl
         is_bl = True
@@ -297,7 +296,6 @@ def get_tracking_info(naviera, num_contenedor, num_bl):
     elif "MAERSK" in nav:
         url, label = f"https://www.maersk.com/tracking/{encoded_ref}", "🌐 Rastrear en Maersk"
     elif "CMA" in nav:
-        # Configuración exacta según sea BL o Contenedor para CMA CGM
         search_by = "BL" if is_bl else "Container"
         url, label = f"https://www.cma-cgm.com/ebusiness/tracking/search?SearchBy={search_by}&Reference={encoded_ref}", "🌐 Rastrear en CMA CGM"
     elif "HAPAG" in nav:
@@ -410,12 +408,15 @@ def generar_pdf_embarque(row_data, df_pagos, df_notas=None):
         diff_days = (today - eta_dt).days
         dias_ad_str = f"{diff_days} día(s) (En Proceso / Tránsito)" if diff_days > 0 else "0 días (En camino)"
 
+    fecha_prod_raw = row_data.get('fecha_listo_produccion')
+    fecha_prod_str = safe_parse_date(fecha_prod_raw).strftime('%d/%m/%Y') if (pd.notna(fecha_prod_raw) and str(fecha_prod_raw).strip() not in ['', 'None', 'nan']) else 'No especificada'
+
     data_logistica = [
         [Paragraph("<b>Estatus Actual:</b>", body_style), estatus_curr, Paragraph("<b>Línea Naviera:</b>", body_style), str(row_data.get('naviera', ''))],
         [Paragraph("<b>N° Contenedor:</b>", body_style), str(row_data.get('num_contenedor', '')), Paragraph("<b>N° BL:</b>", body_style), str(row_data.get('num_bl', ''))],
         [Paragraph("<b>Origen:</b>", body_style), str(row_data.get('origen', '')), Paragraph("<b>Destino:</b>", body_style), str(row_data.get('destino', ''))],
         [Paragraph("<b>ETA (Arribo):</b>", body_style), str(row_data.get('eta', '')), Paragraph("<b>Producto:</b>", body_style), str(row_data.get('producto', ''))],
-        [Paragraph("<b>Días en Aduana / Puerto:</b>", body_style), dias_ad_str, Paragraph("<b>Fecha Entrega:</b>", body_style), str(row_data.get('fecha_entrega') or 'Pendiente')]
+        [Paragraph("<b>Fin Producción (Listo):</b>", body_style), fecha_prod_str, Paragraph("<b>Días en Aduana:</b>", body_style), dias_ad_str]
     ]
 
     t1 = Table(data_logistica, colWidths=[120, 140, 110, 150])
@@ -445,32 +446,29 @@ def generar_pdf_embarque(row_data, df_pagos, df_notas=None):
     ]))
     elements.extend([t2, Spacer(1, 10), Paragraph("💰 Resumen Financiero (Fábrica y Flete)", subtitle_style), Spacer(1, 4)])
 
-    monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
+    # CÁLCULOS FINANCIEROS (FÁBRICA + FLETE)
+    monto_factura = float(row_data.get('monto_factura', 0.0)) if pd.notna(row_data.get('monto_factura')) else 0.0
+    monto_flete = float(row_data.get('monto_flete', 0.0)) if pd.notna(row_data.get('monto_flete')) else 0.0
+
     df_fabrica = df_pagos[df_pagos['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos.empty else pd.DataFrame()
     monto_abonado_fabrica = df_fabrica['monto'].sum() if not df_fabrica.empty else 0.0
     saldo_pendiente_fabrica = max(0.0, monto_factura - monto_abonado_fabrica)
 
     df_flete = df_pagos[df_pagos['tipo_pago'] == 'Pago a Freight Forwarder'] if not df_pagos.empty else pd.DataFrame()
     monto_flete_pagado = df_flete['monto'].sum() if not df_flete.empty else 0.0
-    
-    if estatus_curr in ['Entregado', 'Pendiente Pago']:
-        estado_flete_str = "No Aplica / Pagado"
-    elif not df_flete.empty:
-        estado_flete_str = "🟢 Flete Pagado"
-    else:
-        estado_flete_str = "PENDIENTE"
+    saldo_pendiente_flete = max(0.0, monto_flete - monto_flete_pagado)
 
     data_finanzas = [
         [Paragraph("<b>FÁBRICA — Factura:</b>", body_style), f"${monto_factura:,.2f}",
-         Paragraph("<b>Abonado:</b>", body_style), f"${monto_abonado_fabrica:,.2f}",
-         Paragraph("<b>Saldo Pendiente:</b>", body_style), f"${saldo_pendiente_fabrica:,.2f}"],
+         Paragraph("<b>Abonado Fábrica:</b>", body_style), f"${monto_abonado_fabrica:,.2f}",
+         Paragraph("<b>Saldo Pend. Fábrica:</b>", body_style), f"${saldo_pendiente_fabrica:,.2f}"],
         
-        [Paragraph("<b>FLETE — Agente:</b>", body_style), Paragraph(str(row_data.get('agente_carga') or 'N/A'), body_style),
-         Paragraph("<b>Estatus:</b>", body_style), estado_flete_str,
-         Paragraph("<b>Total Pagado Flete:</b>", body_style), f"${monto_flete_pagado:,.2f}"]
+        [Paragraph("<b>FLETE — Factura:</b>", body_style), f"${monto_flete:,.2f}",
+         Paragraph("<b>Pagado Flete:</b>", body_style), f"${monto_flete_pagado:,.2f}",
+         Paragraph("<b>Saldo Pend. Flete:</b>", body_style), f"${saldo_pendiente_flete:,.2f}"]
     ]
 
-    t3 = Table(data_finanzas, colWidths=[100, 80, 80, 90, 90, 80])
+    t3 = Table(data_finanzas, colWidths=[110, 75, 95, 75, 95, 70])
     t3.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E0F2FE')),
         ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#FEF3C7')),
@@ -612,7 +610,6 @@ if menu == "📊 Dashboard General":
     st.title(f"📦 Centro de Control Logístico — {st.session_state.user_dept}")
     st.caption("Visión operativa en tiempo real, alertas de arribo y estado de carga")
 
-    # Inyección de CSS para tarjetas modernas
     st.markdown("""
         <style>
         .metric-card {
@@ -654,21 +651,15 @@ if menu == "📊 Dashboard General":
         df_db['eta_dt'] = pd.to_datetime(df_db['eta'], errors='coerce')
         df_activas = df_db[df_db['estatus'] != 'Entregado'].copy()
         
-        # Cálculos Logísticos
         df_activas['dias_para_eta'] = (df_activas['eta_dt'].dt.date - today).apply(lambda x: x.days if pd.notna(x) else 999)
         
-        # Categorías de alertas
         arribos_proximos = df_activas[(df_activas['dias_para_eta'] >= 0) & (df_activas['dias_para_eta'] <= 7)]
         en_puerto = df_activas[df_activas['dias_para_eta'] < 0]
-        en_transito = df_activas[df_activas['dias_para_eta'] > 7]
         
         current_my = today.strftime('%m/%Y')
         df_db['eta_my'] = df_db['eta_dt'].dt.strftime('%m/%Y')
         entregadas_mes = df_db[(df_db['estatus'] == 'Entregado') & (df_db['eta_my'] == current_my)]
 
-        # -------------------------------------------------------------
-        # 1. FILA DE TARJETAS KPIs INTERACTIVAS
-        # -------------------------------------------------------------
         kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
         with kpi1:
@@ -711,9 +702,6 @@ if menu == "📊 Dashboard General":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # -------------------------------------------------------------
-        # 2. ACCIONES RÁPIDAS (ACCESO DIRECTO)
-        # -------------------------------------------------------------
         st.subheader("⚡ Acciones Rápidas y Filtrado Directo")
         col_act1, col_act2, col_act3 = st.columns(3)
         
@@ -734,9 +722,6 @@ if menu == "📊 Dashboard General":
 
         st.markdown("---")
 
-        # -------------------------------------------------------------
-        # 3. CRONOGRAMA DE ARRIBOS PRÓXIMOS (LO QUE LE IMPORTA A ALMACÉN)
-        # -------------------------------------------------------------
         c_left, c_right = st.columns([1.6, 1])
 
         with c_left:
@@ -779,9 +764,6 @@ if menu == "📊 Dashboard General":
             else:
                 st.success("🎉 No hay cargas pendientes por llegar.")
 
-        # -------------------------------------------------------------
-        # 4. GRÁFICAS ÚTILES (VOLUMEN Y EMBUDO OPERATIVO)
-        # -------------------------------------------------------------
         with c_right:
             st.subheader("📊 Resumen Operativo")
             
@@ -798,8 +780,9 @@ if menu == "📊 Dashboard General":
                 df_est_cnt = df_activas['estatus'].value_counts().reset_index()
                 df_est_cnt.columns = ['Estatus', 'Cantidad']
                 st.bar_chart(df_est_cnt, x='Estatus', y='Cantidad', color="#38BDF8")
+
 # =============================================================
-# VISTA 1: 📋 CONTROL DE EMBARQUES (CON EXPORTACIÓN A EXCEL/CSV)
+# VISTA 1: 📋 CONTROL DE EMBARQUES
 # =============================================================
 elif menu == "📋 Control de Embarques":
     st.title("📋 Control General de Embarques")
@@ -816,17 +799,28 @@ elif menu == "📋 Control de Embarques":
     else:
         invoices_con_pago_ff = df_pagos_all[df_pagos_all['tipo_pago'] == 'Pago a Freight Forwarder']['num_invoice'].unique() if not df_pagos_all.empty else []
 
-        def check_pago_ff(row):
+        # COLUMNA DINÁMICA DE ESTADO FLETE / PRODUCCIÓN
+        def check_pago_ff_o_prod(row):
             estatus = str(row.get('estatus', '')).strip()
             inv = row.get('num_invoice', '')
-            if estatus in ['Entregado', 'Pendiente Pago']:
+            fecha_prod = row.get('fecha_listo_produccion')
+
+            if estatus == "En Producción":
+                if pd.notna(fecha_prod) and str(fecha_prod).strip() not in ['', 'None', 'nan', 'NaT']:
+                    try:
+                        f_dt = safe_parse_date(fecha_prod).strftime('%d/%m/%Y')
+                        return f"🏭 Listo: {f_dt}"
+                    except Exception:
+                        return f"🏭 Listo: {fecha_prod}"
+                return "🏭 En Producción (S/F)"
+            elif estatus in ['Entregado', 'Pendiente Pago']:
                 return '✅ No Aplica / Pagado'
             elif inv in invoices_con_pago_ff:
                 return '🟢 Flete Pagado'
             else:
                 return '⚠️ PENDIENTE FLETE'
 
-        df['pago_flete_status'] = df.apply(check_pago_ff, axis=1)
+        df['pago_flete_status'] = df.apply(check_pago_ff_o_prod, axis=1)
         df['dua_badge'] = df.apply(lambda r: "🟢 Solicitado" if r.get('solicitado_dua') else "🟡 Pendiente", axis=1)
         df['reca_badge'] = df.apply(lambda r: "🟢 Solicitado" if r.get('solicitado_reca') else "🟡 Pendiente", axis=1)
 
@@ -865,7 +859,6 @@ elif menu == "📋 Control de Embarques":
         with c_top1:
             st.caption(f"📊 Mostrando **{len(df_filtered)}** de **{len(df)}** embarque(s) registrado(s).")
         
-        # BOTONES DE EXPORTACIÓN A EXCEL
         with c_top2:
             df_export = df_filtered.drop(columns=['eta_dt'], errors='ignore')
             excel_bytes = generar_excel_embarques(df_export)
@@ -892,18 +885,20 @@ elif menu == "📋 Control de Embarques":
                 return ''
 
             def highlight_flete(val):
-                if 'PENDIENTE' in str(val): return 'background-color: #FFE1A8; color: #854D0E; font-weight: bold;'
-                elif 'Pagado' in str(val): return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
+                val_str = str(val)
+                if 'PENDIENTE' in val_str: return 'background-color: #FFE1A8; color: #854D0E; font-weight: bold;'
+                elif 'Pagado' in val_str: return 'background-color: #D1FAE5; color: #065F46; font-weight: bold;'
+                elif 'Listo:' in val_str: return 'background-color: #FEF3C7; color: #92400E; font-weight: bold;'
                 return ''
 
             cols_to_show = ['num_invoice', 'num_contenedor', 'num_bl', 'naviera', 'fabricante', 'producto', 'origen', 'destino', 'eta', 'estatus'] + (['pago_flete_status', 'dua_badge', 'reca_badge'] if role == "admin" else [])
-            cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus'] + (['Estado Flete', 'DUA', 'RECA'] if role == "admin" else [])
+            cols_names = ['N° Invoice', 'Contenedor', 'N° BL', 'Línea Naviera', 'Fabricante', 'Producto', 'Origen', 'Destino', 'ETA (Arribo)', 'Estatus'] + (['Estado Flete / Prod.', 'DUA', 'RECA'] if role == "admin" else [])
 
             df_display = df_filtered[cols_to_show].copy()
             df_display.columns = cols_names
 
             styled_df = df_display.style.map(highlight_status, subset=['Estatus'])
-            if role == "admin": styled_df = styled_df.map(highlight_flete, subset=['Estado Flete'])
+            if role == "admin": styled_df = styled_df.map(highlight_flete, subset=['Estado Flete / Prod.'])
 
             st.info("💡 **Tip:** Haz clic sobre cualquier fila para seleccionar un embarque y ver sus detalles.")
             
@@ -930,7 +925,7 @@ elif menu == "📋 Control de Embarques":
                         st.success(f"📌 Embarque Seleccionado: **Invoice {selected_invoice}** | Contenedor: **{row_data['num_contenedor']}** | ETA: **{row_data['eta']}**")
 
                         if role == "admin":
-                            es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago"])
+                            es_omito_flete = (str(row_data['estatus']).strip() in ["Entregado", "Pendiente Pago", "En Producción"])
                             tiene_pago_ff = selected_invoice in invoices_con_pago_ff
                             if not es_omito_flete and not tiene_pago_ff:
                                 st.warning(f"⚠️ **ALERTA DE FLETE:** Este embarque se encuentra **'{row_data['estatus']}'** y **AÚN NO TIENE REGISTRADO EL PAGO AL FREIGHT FORWARDER**.")
@@ -1062,23 +1057,31 @@ elif menu == "📋 Control de Embarques":
                         df_pagos_emb = pd.DataFrame(res_p_emb.data) if res_p_emb.data else pd.DataFrame()
 
                         if role == "admin":
-                            with st.expander(f"💰 **BALANCE FINANCIERO Y PAGOS DE FÁBRICA ({selected_invoice})**", expanded=True):
+                            with st.expander(f"💰 **BALANCE FINANCIERO (FÁBRICA Y FLETE)** — Invoice: {selected_invoice}", expanded=True):
                                 df_pagos_fabrica = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Fábrica'] if not df_pagos_emb.empty else pd.DataFrame()
                                 monto_total_pagado_fabrica = df_pagos_fabrica['monto'].sum() if not df_pagos_fabrica.empty else 0.0
                                 monto_factura = float(row_data['monto_factura']) if pd.notna(row_data.get('monto_factura')) else 0.0
-                                saldo_pendiente = max(0.0, monto_factura - monto_total_pagado_fabrica)
+                                saldo_pendiente_fabrica = max(0.0, monto_factura - monto_total_pagado_fabrica)
 
+                                df_pagos_flete = df_pagos_emb[df_pagos_emb['tipo_pago'] == 'Pago a Freight Forwarder'] if not df_pagos_emb.empty else pd.DataFrame()
+                                monto_total_pagado_flete = df_pagos_flete['monto'].sum() if not df_pagos_flete.empty else 0.0
+                                monto_flete = float(row_data.get('monto_flete', 0.0)) if pd.notna(row_data.get('monto_flete')) else 0.0
+                                saldo_pendiente_flete = max(0.0, monto_flete - monto_total_pagado_flete)
+
+                                st.markdown("##### 🏭 Factura de Fábrica")
                                 m1, m2, m3 = st.columns(3)
-                                m1.metric("Monto Total Factura", f"${monto_factura:,.2f} USD")
-                                m2.metric("Total Abonado", f"${monto_total_pagado_fabrica:,.2f} USD")
-                                m3.metric("Saldo Pendiente", f"${saldo_pendiente:,.2f} USD")
-                                
-                                if saldo_pendiente <= 0 and monto_factura > 0:
-                                    st.success("🟢 **Saldo Pendiente Fábrica:** $0.00 USD — ¡PAGADO COMPLETAMENTE!")
-                                else:
-                                    st.error(f"🔴 **Saldo Pendiente por Pagar:** ${saldo_pendiente:,.2f} USD")
+                                m1.metric("Monto Factura", f"${monto_factura:,.2f} USD")
+                                m2.metric("Abonado Fábrica", f"${monto_total_pagado_fabrica:,.2f} USD")
+                                m3.metric("Saldo Pendiente Fábrica", f"${saldo_pendiente_fabrica:,.2f} USD")
 
-                                st.markdown("##### 🧾 Detalle de Pagos / Abonos Registrados:")
+                                st.markdown("##### 🚢 Factura de Flete Internacional")
+                                f1, f2, f3 = st.columns(3)
+                                f1.metric("Monto Factura Flete", f"${monto_flete:,.2f} USD")
+                                f2.metric("Pagado a Forwarder", f"${monto_total_pagado_flete:,.2f} USD")
+                                f3.metric("Saldo Pendiente Flete", f"${saldo_pendiente_flete:,.2f} USD")
+
+                                st.markdown("---")
+                                st.markdown("##### 🧾 Detalle de Pagos Registrados:")
                                 if not df_pagos_emb.empty:
                                     df_disp_pagos = df_pagos_emb[['fecha_pago', 'tipo_pago', 'banco', 'monto', 'referencia', 'path_comprobante']].copy()
                                     df_disp_pagos.columns = ['Fecha', 'Tipo de Pago', 'Banco / Origen', 'Monto ($ USD)', 'Referencia', 'Comprobante']
@@ -1101,8 +1104,12 @@ elif menu == "📋 Control de Embarques":
                         if role == "admin":
                             col_b1, col_b2 = st.columns(2)
                             with col_b1:
+                                # CORRECCIÓN: REDIRECCIÓN AUTOMÁTICA AL EDITAR
                                 if st.button(f"✏️ Editar Embarque ({selected_invoice})", type="primary", use_container_width=True):
                                     st.session_state.editing_invoice = selected_invoice
+                                    st.session_state.pending_nav_menu = "✏️ Editar / Actualizar Embarque"
+                                    st.rerun()
+
                             with col_b2:
                                 pdf_data = generar_pdf_embarque(row_data, df_pagos_emb, df_notas_emb)
                                 st.download_button(label=f"📄 Imprimir Ficha PDF", data=pdf_data, file_name=f"Ficha_{selected_invoice}.pdf", mime="application/pdf", use_container_width=True)
@@ -1140,7 +1147,6 @@ elif menu == "⚙️ Catálogos Maestros" and role == "admin":
         "📦 Catálogo de Productos (PET/Resinas)"
     ])
 
-    # TAB 1: PROVEEDORES Y AGENTES
     with tab_prov:
         st.subheader("🏭 Registro de Proveedores y Agentes Logísticos")
         
@@ -1188,7 +1194,6 @@ elif menu == "⚙️ Catálogos Maestros" and role == "admin":
         else:
             st.info("Aún no hay proveedores registrados en el catálogo.")
 
-    # TAB 2: CONSIGNATARIOS
     with tab_cons:
         st.subheader("🏢 Registro de Consignatarios")
         
@@ -1226,7 +1231,6 @@ elif menu == "⚙️ Catálogos Maestros" and role == "admin":
         else:
             st.info("Aún no hay consignatarios registrados.")
 
-    # TAB 3: CATÁLOGO INTELIGENTE DE PRODUCTOS
     with tab_prod:
         st.subheader("📦 Catálogo Inteligente de Productos (Preformas PET, Resinas y Tapas)")
         st.caption("Registra de forma estandarizada los productos especificando categoría, gramajes (20g, 40g, 700g, etc.) y colores.")
@@ -1398,7 +1402,6 @@ elif "Pagos Internacionales" in menu:
                             "fecha_pago": str(date.today()), "referencia": ref_saldar_input, "path_comprobante": None
                         }).execute()
 
-                        # Cambio automático de estatus a 'En Producción' si estaba en 'Pendiente Pago'
                         res_c = supabase.table("embarques").select("estatus").eq("num_invoice", selected_inv_hist).execute()
                         if res_c.data and res_c.data[0]['estatus'] == "Pendiente Pago":
                             supabase.table("embarques").update({"estatus": "En Producción"}).eq("num_invoice", selected_inv_hist).execute()
@@ -1453,7 +1456,8 @@ elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
         "naviera": "MSC", "fabricante": "Tech Corp", "producto": "Preforma PET 20g Cristal",
         "origen": "China", "destino": "Venezuela", "eta": "2026-08-15",
         "estatus": "Pendiente Pago", "agente_carga": "DHL", "agente_aduanas": "Aduanas C.A.",
-        "consignatario": "Industrias Orgatek", "monto_factura": 25000.00
+        "consignatario": "Industrias Orgatek", "monto_factura": 25000.00, "monto_flete": 3500.00,
+        "fecha_listo_produccion": "2026-07-30"
     }])
     csv_sample = sample_data.to_csv(index=False).encode('utf-8')
     st.download_button("📥 Descargar Plantilla de Ejemplo (CSV)", csv_sample, "plantilla_embarques.csv", "text/csv")
@@ -1478,7 +1482,10 @@ elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
                         "origen": str(row.get('origen', 'China')), "destino": str(row.get('destino', 'Venezuela')),
                         "eta": str(row.get('eta', '')), "estatus": str(row.get('estatus', 'Pendiente Pago')),
                         "agente_carga": str(row.get('agente_carga', '')), "agente_aduanas": str(row.get('agente_aduanas', '')),
-                        "consignatario": str(row.get('consignatario', '')), "monto_factura": float(row.get('monto_factura', 0.0)) if pd.notna(row.get('monto_factura')) else 0.0
+                        "consignatario": str(row.get('consignatario', '')), 
+                        "monto_factura": float(row.get('monto_factura', 0.0)) if pd.notna(row.get('monto_factura')) else 0.0,
+                        "monto_flete": float(row.get('monto_flete', 0.0)) if pd.notna(row.get('monto_flete')) else 0.0,
+                        "fecha_listo_produccion": str(row.get('fecha_listo_produccion', '')) if pd.notna(row.get('fecha_listo_produccion')) else None
                     }
 
                     res_check = supabase.table("embarques").select("id").eq("num_invoice", inv).execute()
@@ -1494,12 +1501,11 @@ elif menu == "📊 Carga Masiva (Excel/CSV)" and role == "admin":
         except Exception as e:
             st.error(f"Error procesando archivo: {e}")
 
-# --- MENÚ 5: REGISTRO MANUAL (CON CATÁLOGOS INTEGRADOS) ---
+# --- MENÚ 5: REGISTRO MANUAL ---
 elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
     st.title("➕ Registrar Nuevo Embarque Manual")
     st.caption("Carga individual utilizando las listas preseleccionables de tus Catálogos Maestros")
 
-    # Cargar catálogos para los selectbox
     cat_fab = [p['nombre'] for p in get_catalogo_proveedores("Fabricante")]
     cat_ff = [p['nombre'] for p in get_catalogo_proveedores("Freight Forwarder")]
     cat_aduanas = [p['nombre'] for p in get_catalogo_proveedores("Agente de Aduanas")]
@@ -1511,7 +1517,6 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
         with col1:
             num_invoice = st.text_input("Número de Invoice *")
             
-            # Selectbox dinámico Fabricantes
             sel_fab = st.selectbox("Fabricante / Proveedor", ["-- Seleccionar de Catálogo --", "-- Escribir Manualmente --"] + cat_fab)
             if sel_fab == "-- Escribir Manualmente --":
                 fabricante = st.text_input("Nombre Fabricante (Manual)")
@@ -1520,9 +1525,9 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
             else:
                 fabricante = ""
 
-            monto_factura = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, step=100.0, format="%.2f")
+            monto_factura = st.number_input("Monto Total Factura Fábrica ($ USD)", min_value=0.0, step=100.0, format="%.2f")
+            monto_flete = st.number_input("Monto Factura Flete ($ USD)", min_value=0.0, step=100.0, format="%.2f")
             
-            # Selectbox dinámico Productos
             sel_prod = st.selectbox("Producto (Catálogo Maestros)", ["-- Seleccionar de Catálogo --", "-- Escribir Manualmente --"] + cat_prods)
             if sel_prod == "-- Escribir Manualmente --":
                 producto = st.text_input("Descripción Producto (Manual)")
@@ -1539,7 +1544,6 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
             naviera = st.selectbox("Línea Naviera", NAVIERAS)
             num_contenedor = st.text_input("Número de Contenedor")
             
-            # Selectbox dinámico Forwarders
             sel_ff = st.selectbox("Freight Forwarder (Agente Carga)", ["-- Seleccionar de Catálogo --", "-- Escribir Manualmente --"] + cat_ff)
             if sel_ff == "-- Escribir Manualmente --":
                 agente_carga = st.text_input("Nombre Agente Carga (Manual)")
@@ -1548,7 +1552,6 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
             else:
                 agente_carga = ""
 
-            # Selectbox dinámico Agente Aduanas
             sel_ad = st.selectbox("Agente de Aduanas", ["-- Seleccionar de Catálogo --", "-- Escribir Manualmente --"] + cat_aduanas)
             if sel_ad == "-- Escribir Manualmente --":
                 agente_aduanas = st.text_input("Nombre Agente Aduanas (Manual)")
@@ -1558,7 +1561,6 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
                 agente_aduanas = ""
 
         with col3:
-            # Selectbox dinámico Consignatario
             sel_cons = st.selectbox("Consignatario", ["-- Seleccionar de Catálogo --", "-- Escribir Manualmente --"] + cat_cons)
             if sel_cons == "-- Escribir Manualmente --":
                 consignatario = st.text_input("Nombre Consignatario (Manual)")
@@ -1567,8 +1569,9 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
             else:
                 consignatario = ""
 
-            eta = st.date_input("Estimado de Arribo (ETA)")
             estatus = st.selectbox("Estatus Inicial", ESTATUS_LISTA, index=0)
+            fecha_prod_input = st.date_input("Fecha Fin de Producción (Lista para Despacho)", value=date.today())
+            eta = st.date_input("Estimado de Arribo (ETA)")
         
         st.markdown("### Adjuntar Documentación a Supabase (PDF/Excel)")
         col_f1, col_f2 = st.columns(2)
@@ -1597,7 +1600,8 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
                         "producto": producto, "num_bl": num_bl, "naviera": naviera,
                         "num_contenedor": num_contenedor, "eta": str(eta), "estatus": estatus,
                         "path_packing": p_pack, "path_invoice": p_inv, "path_flete": p_fle,
-                        "path_bl": p_bl, "monto_factura": monto_factura
+                        "path_bl": p_bl, "monto_factura": monto_factura, "monto_flete": monto_flete,
+                        "fecha_listo_produccion": str(fecha_prod_input)
                     }).execute()
                     st.success(f"✅ Embarque Invoice {num_invoice} guardado exitosamente.")
                 except Exception as e:
@@ -1613,7 +1617,13 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
         st.info("No hay embarques para editar en Supabase.")
     else:
         invoices_list = list(df['num_invoice'].unique())
-        selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", invoices_list)
+        
+        # PRE-SELECCIONAR INVOICE SI SE HIZO CLIC EN EL BOTÓN EDITAR
+        default_inv_idx = 0
+        if st.session_state.get("editing_invoice") in invoices_list:
+            default_inv_idx = invoices_list.index(st.session_state.editing_invoice)
+
+        selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", invoices_list, index=default_inv_idx)
         row = df[df['num_invoice'] == selected_invoice].iloc[0]
         
         with st.form("form_editar_embarque"):
@@ -1621,7 +1631,8 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
             with col1:
                 num_invoice_edit = st.text_input("Número de Invoice", value=str(row['num_invoice']), disabled=True)
                 fabricante_edit = st.text_input("Fabricante / Proveedor", value=str(row.get('fabricante') or ''))
-                monto_factura_edit = st.number_input("Monto Total Factura ($ USD)", min_value=0.0, value=float(row.get('monto_factura') or 0.0), step=100.0, format="%.2f")
+                monto_factura_edit = st.number_input("Monto Total Factura Fábrica ($ USD)", min_value=0.0, value=float(row.get('monto_factura') or 0.0), step=100.0, format="%.2f")
+                monto_flete_edit = st.number_input("Monto Factura Flete ($ USD)", min_value=0.0, value=float(row.get('monto_flete') or 0.0), step=100.0, format="%.2f")
                 producto_edit = st.text_input("Descripción del Producto", value=str(row.get('producto') or ''))
                 origen_edit = st.text_input("Origen", value=str(row.get('origen') or ''))
                 destino_edit = st.text_input("Destino", value=str(row.get('destino') or ''))
@@ -1634,10 +1645,14 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                 agente_aduanas_edit = st.text_input("Agente de Aduanas", value=str(row.get('agente_aduanas') or ''))
             with col3:
                 consignatario_edit = st.text_input("Consignatario", value=str(row.get('consignatario') or ''))
-                fecha_val = safe_parse_date(row.get('eta'))
-                eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
                 est_val = str(row.get('estatus')) if row.get('estatus') in ESTATUS_LISTA else ESTATUS_LISTA[0]
                 estatus_edit = st.selectbox("Estatus Actualizado", ESTATUS_LISTA, index=ESTATUS_LISTA.index(est_val))
+                
+                f_prod_val = safe_parse_date(row.get('fecha_listo_produccion'))
+                fecha_prod_edit = st.date_input("Fecha Fin de Producción (Listo)", value=f_prod_val)
+
+                fecha_val = safe_parse_date(row.get('eta'))
+                eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
             
             st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
             col_f1, col_f2 = st.columns(2)
@@ -1661,7 +1676,8 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                     "consignatario": consignatario_edit, "producto": producto_edit, "num_bl": num_bl_edit,
                     "naviera": naviera_edit, "num_contenedor": num_contenedor_edit, "eta": str(eta_edit),
                     "estatus": estatus_edit, "path_packing": p_pack, "path_invoice": p_inv,
-                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit
+                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit,
+                    "monto_flete": monto_flete_edit, "fecha_listo_produccion": str(fecha_prod_edit)
                 }
 
                 if estatus_edit == "Entregado" and row.get('estatus') != "Entregado":
@@ -1670,6 +1686,7 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
 
                 try:
                     supabase.table("embarques").update(update_payload).eq("num_invoice", selected_invoice).execute()
+                    st.session_state.editing_invoice = None
                     st.success(f"✅ Embarque Invoice {selected_invoice} actualizado correctamente.")
                     st.rerun()
                 except Exception as e:
