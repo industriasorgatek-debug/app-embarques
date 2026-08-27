@@ -1748,6 +1748,9 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                 p_fle = upload_file_to_supabase(new_file_flete, selected_invoice, "FLE") if new_file_flete else clean_url(row.get('path_flete'))
                 p_bl = upload_file_to_supabase(new_file_bl, selected_invoice, "BL") if new_file_bl else clean_url(row.get('path_bl'))
                 
+                estatus_anterior = str(row.get('estatus'))
+                eta_anterior = str(row.get('eta'))
+
                 update_payload = {
                     "origen": origen_edit, "destino": destino_edit, "fabricante": fabricante_edit,
                     "agente_carga": agente_carga_edit, "agente_aduanas": agente_aduanas_edit,
@@ -1765,9 +1768,22 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
 
                 try:
                     supabase.table("embarques").update(update_payload).eq("num_invoice", selected_invoice).execute()
+                    
+                    # ALERTAR A TELEGRAM SI CAMBIÓ EL ESTATUS O LA FECHA DE ARRIBO (ETA)
+                    if estatus_edit != estatus_anterior or str(eta_edit) != eta_anterior:
+                        msg_cambio = (
+                            f"🔄 *ACTUALIZACIÓN DE EMBARQUE*\n\n"
+                            f"• *Invoice:* `{selected_invoice}`\n"
+                            f"• *Producto:* {producto_edit}\n"
+                            f"• *Contenedor:* {num_contenedor_edit or 'S/N'}\n"
+                            f"• *Estatus:* {estatus_anterior} ➔ *{estatus_edit}*\n"
+                            f"• *ETA (Llegada Estimada):* {eta_edit}\n\n"
+                            f"_Modificado por {st.session_state.user_dept}_"
+                        )
+                        enviar_alerta_telegram(msg_cambio)
+
                     st.session_state.editing_invoice = None
                     st.success(f"✅ Embarque Invoice {selected_invoice} actualizado correctamente.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error al guardar cambios: {e}")
-
