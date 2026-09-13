@@ -1681,6 +1681,12 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
 # --- MENÚ 6: EDITAR EMBARQUE ---
 elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
     st.title("✏️ Editar Embarque Existente")
+    
+    # 🟢 MENSAJE DE ÉXITO VISIBLE (Persiste después de guardar)
+    if st.session_state.get("msg_exito_edicion"):
+        st.success(st.session_state.msg_exito_edicion)
+        st.session_state.msg_exito_edicion = None
+
     res_emb = supabase.table("embarques").select("*").execute()
     df = pd.DataFrame(res_emb.data) if res_emb.data else pd.DataFrame()
     
@@ -1694,6 +1700,9 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
             default_inv_idx = invoices_list.index(st.session_state.editing_invoice)
 
         selected_invoice = st.selectbox("Selecciona la Invoice a modificar:", invoices_list, index=default_inv_idx)
+        # Recordar siempre la invoice actual que el usuario tiene en pantalla
+        st.session_state.editing_invoice = selected_invoice
+        
         row = df[df['num_invoice'] == selected_invoice].iloc[0]
         
         with st.form("form_editar_embarque"):
@@ -1783,8 +1792,9 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                         )
                         enviar_alerta_telegram(msg_cambio)
 
-                    st.session_state.editing_invoice = None
-                    st.success(f"✅ Embarque Invoice {selected_invoice} actualizado correctamente.")
+                    # 🔒 MANTENER EN EL MISMO EMBARQUE Y MOSTRAR CONFIRMACIÓN
+                    st.session_state.editing_invoice = selected_invoice
+                    st.session_state.msg_exito_edicion = f"✅ ¡Embarque Invoice '{selected_invoice}' guardado y actualizado con éxito!"
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error al guardar cambios: {e}")
