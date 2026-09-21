@@ -4,8 +4,13 @@ import io
 import urllib.parse
 import zipfile
 import requests
+import logging
+import html
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from supabase import create_client, Client
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 # -------------------------------------------------------------
 # CONFIGURACIÓN DE PÁGINA
@@ -36,14 +41,24 @@ def enviar_alerta_telegram(mensaje):
     try:
         token = st.secrets.get("TELEGRAM_BOT_TOKEN")
         chat_id = st.secrets.get("TELEGRAM_CHAT_ID")
-        if token and chat_id and str(token).strip() != "" and str(chat_id).strip() != "":
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            payload = {"chat_id": chat_id, "text": mensaje, "parse_mode": "Markdown"}
-            requests.post(url, data=payload, timeout=5)
+        if not token or not chat_id or str(token).strip() == "" or str(chat_id).strip() == "":
+            logging.warning("⚠️ Alerta Telegram no enviada: TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID no configurados en Secrets.")
+            return False
+        
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {"chat_id": chat_id, "text": mensaje, "parse_mode": "Markdown"}
+        response = requests.post(url, data=payload, timeout=5)
+        if response.status_code == 200:
             return True
-    except Exception:
-        pass
-    return False
+        else:
+            logging.error(f"🚨 Error en respuesta de Telegram API ({response.status_code}): {response.text}")
+            return False
+    except requests.exceptions.Timeout:
+        logging.error("🚨 Tiempo de espera agotado al conectar con los servidores de Telegram.")
+        return False
+    except Exception as e:
+        logging.error(f"🚨 Error inesperado al enviar alerta a Telegram: {e}")
+        return False
 
 # -------------------------------------------------------------
 # FUNCIONES AUXILIARES DE MONEDA Y FORMATO
@@ -56,7 +71,8 @@ def fmt_moneda(monto, cod_moneda="USD"):
     simbolo = MONEDAS.get(mon_clean, "$")
     try:
         val = float(monto) if pd.notna(monto) else 0.0
-    except Exception:
+    except (ValueError, TypeError) as e:
+        logging.debug(f"Aviso al formatear moneda para valor '{monto}': {e}")
         val = 0.0
     return f"{simbolo} {val:,.2f} {mon_clean}"
 
@@ -66,8 +82,8 @@ def get_maintenance_mode():
         if res.data and len(res.data) > 0:
             val = str(res.data[0].get("value", "")).lower().strip()
             return val in ["true", "1", "yes", "si"]
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning(f"⚠️ No se pudo consultar 'modo_mantenimiento' en Supabase: {e}")
     return False
 
 def set_maintenance_mode(is_active: bool):
@@ -76,6 +92,7 @@ def set_maintenance_mode(is_active: bool):
         supabase.table("app_config").upsert({"key": "modo_mantenimiento", "value": val_str}).execute()
     except Exception as e:
         st.error(f"Error actualizando Modo Mantenimiento en Supabase: {e}")
+        logging.error(f"🚨 Error guardando modo_mantenimiento: {e}")
 
 def get_catalogo_proveedores(tipo_filtro=None):
     try:
@@ -84,21 +101,24 @@ def get_catalogo_proveedores(tipo_filtro=None):
             query = query.eq("tipo", tipo_filtro)
         res = query.order("nombre").execute()
         return res.data if res.data else []
-    except Exception:
+    except Exception as e:
+        logging.error(f"🚨 Error al consultar catalogo_proveedores en Supabase: {e}")
         return []
 
 def get_catalogo_consignatarios():
     try:
         res = supabase.table("catalogo_consignatarios").select("*").order("nombre").execute()
         return res.data if res.data else []
-    except Exception:
+    except Exception as e:
+        logging.error(f"🚨 Error al consultar catalogo_consignatarios en Supabase: {e}")
         return []
 
 def get_catalogo_productos():
     try:
         res = supabase.table("catalogo_productos").select("*").order("categoria").execute()
         return res.data if res.data else []
-    except Exception:
+    except Exception as e:
+        logging.error(f"🚨 Error al consultar catalogo_productos en Supabase: {e}")
         return []
 
 # PINs de Acceso
@@ -200,8 +220,10 @@ def clean_url(val):
 def ensure_bucket_exists(bucket_name="documentos"):
     try:
         supabase.storage.create_bucket(bucket_name, options={"public": True})
-    except Exception:
-        pass
+    except Exception as e:
+        err_str = str(e).lower()
+        if "already exists" not in err_str and "duplicate" not in err_str:
+            logging.info(f"Verificación de existencia de bucket '{bucket_name}': {e}")
 
 def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
     if file_obj is None:
@@ -236,9 +258,11 @@ def upload_file_to_supabase(file_obj, num_invoice, prefix, bucket="documentos"):
                 return supabase.storage.from_(bucket).get_public_url(storage_path)
             except Exception as e2:
                 st.error(f"🚨 El bucket '{bucket}' no existe en tu Supabase. Error: {e2}")
+                logging.error(f"Error creando bucket y reintentando subida: {e2}")
                 return None
         else:
             st.error(f"🚨 Error al subir archivo '{file_obj.name}': {e}")
+            logging.error(f"Error subiendo archivo a Supabase Storage: {e}")
             return None
 
 def safe_parse_date(val):
@@ -249,7 +273,8 @@ def safe_parse_date(val):
         if pd.isna(parsed):
             return date.today()
         return parsed.date()
-    except Exception:
+    except Exception as e:
+        logging.debug(f"Aviso al parsear fecha para valor '{val}': {e}")
         return date.today()
 
 def generar_excel_embarques(df_data):
@@ -259,43 +284,74 @@ def generar_excel_embarques(df_data):
     buffer.seek(0)
     return buffer
 
+def _descargar_archivo_zip(item):
+    """
+    Descarga un archivo individual de forma concurrente con control de tiempo y registro de errores.
+    item: (ruta_dentro_zip, url, nombre_descriptivo)
+    """
+    ruta_zip, url, nombre_desc = item
+    url_limpia = clean_url(url)
+    if not url_limpia or not url_limpia.startswith("http"):
+        return None
+    try:
+        r = requests.get(url_limpia, timeout=12)
+        if r.status_code == 200:
+            return (ruta_zip, r.content)
+        else:
+            logging.warning(f"⚠️ No se pudo descargar '{nombre_desc}' ({url_limpia}). Código HTTP: {r.status_code}")
+    except requests.exceptions.Timeout:
+        logging.error(f"🚨 Tiempo de espera agotado descargando '{nombre_desc}' ({url_limpia})")
+    except Exception as e:
+        logging.error(f"🚨 Error al descargar archivo '{nombre_desc}' para el expediente: {e}")
+    return None
+
 def generar_zip_expediente(num_invoice, row_data):
+    """
+    Genera un archivo comprimido .ZIP con todos los documentos principales y anexos,
+    optimizando la descarga de archivos mediante ejecución en paralelo (ThreadPoolExecutor).
+    """
     buffer = io.BytesIO()
+    items_a_descargar = []
+
+    # 1. Documentos Principales
+    core_docs = [
+        ('Packing_List', row_data.get('path_packing')),
+        ('Factura_Comercial', row_data.get('path_invoice')),
+        ('Factura_Flete', row_data.get('path_flete')),
+        ('Bill_of_Lading', row_data.get('path_bl'))
+    ]
+    for label, url in core_docs:
+        url_clean = clean_url(url)
+        if url_clean and url_clean.startswith('http'):
+            fname = url_clean.split('/')[-1]
+            ruta_zip = f"Principales/{label}_{fname}"
+            items_a_descargar.append((ruta_zip, url_clean, f"Principal: {label}"))
+
+    # 2. Documentos Anexos
+    try:
+        res_anx = supabase.table("documentos_embarque").select("*").eq("num_invoice", num_invoice).execute()
+        if res_anx.data:
+            for doc in res_anx.data:
+                d_url = clean_url(doc.get("path_archivo"))
+                d_tipo = str(doc.get("tipo_documento", "Anexo")).replace(' ', '_')
+                d_nombre = doc.get("nombre_archivo", "archivo")
+                if d_url and d_url.startswith('http'):
+                    ruta_zip = f"Anexos/{d_tipo}/{d_nombre}"
+                    items_a_descargar.append((ruta_zip, d_url, f"Anexo ({d_tipo}): {d_nombre}"))
+    except Exception as e:
+        logging.error(f"🚨 Error al consultar anexos de invoice '{num_invoice}' en Supabase: {e}")
+
+    # 3. Descarga concurrente con ZipFile
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        core_docs = [
-            ('Packing_List', row_data.get('path_packing')),
-            ('Factura_Comercial', row_data.get('path_invoice')),
-            ('Factura_Flete', row_data.get('path_flete')),
-            ('Bill_of_Lading', row_data.get('path_bl'))
-        ]
-        for label, url in core_docs:
-            url_clean = clean_url(url)
-            if url_clean and url_clean.startswith('http'):
-                try:
-                    r = requests.get(url_clean, timeout=10)
-                    if r.status_code == 200:
-                        fname = url_clean.split('/')[-1]
-                        zip_file.writestr(f"Principales/{label}_{fname}", r.content)
-                except Exception:
-                    pass
-        
-        try:
-            res_anx = supabase.table("documentos_embarque").select("*").eq("num_invoice", num_invoice).execute()
-            if res_anx.data:
-                for doc in res_anx.data:
-                    d_url = clean_url(doc.get("path_archivo"))
-                    d_tipo = str(doc.get("tipo_documento", "Anexo")).replace(' ', '_')
-                    d_nombre = doc.get("nombre_archivo", "archivo")
-                    if d_url and d_url.startswith('http'):
-                        try:
-                            r = requests.get(d_url, timeout=10)
-                            if r.status_code == 200:
-                                zip_file.writestr(f"Anexos/{d_tipo}/{d_nombre}", r.content)
-                        except Exception:
-                            pass
-        except Exception:
-            pass
-            
+        if items_a_descargar:
+            max_workers = min(6, len(items_a_descargar))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                resultados = executor.map(_descargar_archivo_zip, items_a_descargar)
+                for res in resultados:
+                    if res:
+                        ruta_en_zip, contenido = res
+                        zip_file.writestr(ruta_en_zip, contenido)
+
     buffer.seek(0)
     return buffer
 
@@ -732,36 +788,55 @@ if menu == "📊 Dashboard General":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        st.subheader("⚡ Acciones Rápidas y Alertas Telegram")
-        col_act1, col_act2, col_act3, col_act4 = st.columns(4)
-        
-        with col_act1:
-            if st.button("🔎 Cargas en Puerto", use_container_width=True, type="primary"):
-                st.session_state.pending_nav_menu = "📋 Control de Embarques"
-                st.rerun()
+        if role == "admin":
+            st.subheader("⚡ Acciones Rápidas y Alertas Telegram")
+            col_act1, col_act2, col_act3, col_act4 = st.columns(4)
+            
+            with col_act1:
+                if st.button("🔎 Cargas en Puerto", use_container_width=True, type="primary"):
+                    st.session_state.pending_nav_menu = "📋 Control de Embarques"
+                    st.rerun()
 
-        with col_act2:
-            if st.button("📅 Arribos Próximos", use_container_width=True):
-                st.session_state.pending_nav_menu = "📋 Control de Embarques"
-                st.rerun()
+            with col_act2:
+                if st.button("📅 Arribos Próximos", use_container_width=True):
+                    st.session_state.pending_nav_menu = "📋 Control de Embarques"
+                    st.rerun()
 
-        with col_act3:
-            if st.button("📋 Lista de Embarques", use_container_width=True):
-                st.session_state.pending_nav_menu = "📋 Control de Embarques"
-                st.rerun()
+            with col_act3:
+                if st.button("📋 Lista de Embarques", use_container_width=True):
+                    st.session_state.pending_nav_menu = "📋 Control de Embarques"
+                    st.rerun()
 
-        with col_act4:
-            if st.button("📲 Enviar Resumen a Telegram", use_container_width=True):
-                msg = f"🚢 *RESUMEN LOGÍSTICO AL DIA* ({today.strftime('%d/%m/%Y')}):\n\n"
-                msg += f"• *Cargas Activas en Tránsito:* {len(df_activas)}\n"
-                msg += f"• *Arribos Próximos (7 días):* {len(arribos_proximos)}\n"
-                msg += f"• *En Puerto / Aduanas:* {len(en_puerto)}\n"
-                msg += f"• *Entregadas este mes:* {len(entregadas_mes)}\n\n_Generado por Control de Embarques_"
-                
-                if enviar_alerta_telegram(msg):
-                    st.success("📲 ¡Alerta enviada a Telegram!")
-                else:
-                    st.warning("⚠️ No se pudo enviar (Verifica tus credenciales en Secrets).")
+            with col_act4:
+                if st.button("📲 Enviar Resumen a Telegram", use_container_width=True):
+                    msg = f"🚢 *RESUMEN LOGÍSTICO AL DÍA* ({today.strftime('%d/%m/%Y')}):\n\n"
+                    msg += f"• *Cargas Activas en Tránsito:* {len(df_activas)}\n"
+                    msg += f"• *Arribos Próximos (7 días):* {len(arribos_proximos)}\n"
+                    msg += f"• *En Puerto / Aduanas:* {len(en_puerto)}\n"
+                    msg += f"• *Entregadas este mes:* {len(entregadas_mes)}\n\n_Generado por Control de Embarques (Compras)_"
+                    
+                    if enviar_alerta_telegram(msg):
+                        st.success("📲 ¡Alerta enviada a Telegram exitosamente!")
+                    else:
+                        st.warning("⚠️ No se pudo enviar la alerta (Verifica tus credenciales en Secrets o la conexión).")
+        else:
+            st.subheader("⚡ Acciones Rápidas")
+            col_act1, col_act2, col_act3 = st.columns(3)
+            
+            with col_act1:
+                if st.button("🔎 Cargas en Puerto", use_container_width=True, type="primary"):
+                    st.session_state.pending_nav_menu = "📋 Control de Embarques"
+                    st.rerun()
+
+            with col_act2:
+                if st.button("📅 Arribos Próximos", use_container_width=True):
+                    st.session_state.pending_nav_menu = "📋 Control de Embarques"
+                    st.rerun()
+
+            with col_act3:
+                if st.button("📋 Lista de Embarques", use_container_width=True):
+                    st.session_state.pending_nav_menu = "📋 Control de Embarques"
+                    st.rerun()
 
         st.markdown("---")
 
@@ -1058,15 +1133,29 @@ elif menu == "📋 Control de Embarques":
                                         st.success("✅ Archivos adjuntados.")
                                         st.rerun()
 
-                                zip_buffer = generar_zip_expediente(selected_invoice, row_data)
-                                st.download_button(
-                                    label=f"📦 Descargar Expediente COMPLETO (.ZIP)",
-                                    data=zip_buffer,
-                                    file_name=f"Expediente_{selected_invoice}.zip",
-                                    mime="application/zip",
-                                    type="primary",
-                                    use_container_width=True
-                                )
+                                st.markdown("---")
+                                st.markdown("##### 📦 Descarga del Expediente Digital Completo")
+                                c_zip1, c_zip2 = st.columns([1, 1])
+                                with c_zip1:
+                                    if st.button(f"📦 Generar Expediente ZIP ({selected_invoice})", type="secondary", use_container_width=True, key=f"btn_prep_zip_{selected_invoice}"):
+                                        with st.spinner("Descargando documentos en paralelo y empaquetando en archivo ZIP..."):
+                                            zip_buffer = generar_zip_expediente(selected_invoice, row_data)
+                                            st.session_state[f"zip_ready_{selected_invoice}"] = zip_buffer.getvalue()
+                                        st.success("✅ Archivo ZIP generado y listo para guardar.")
+                                
+                                with c_zip2:
+                                    if st.session_state.get(f"zip_ready_{selected_invoice}"):
+                                        st.download_button(
+                                            label=f"⬇️ Guardar Expediente_{selected_invoice}.zip",
+                                            data=st.session_state[f"zip_ready_{selected_invoice}"],
+                                            file_name=f"Expediente_{selected_invoice}.zip",
+                                            mime="application/zip",
+                                            type="primary",
+                                            use_container_width=True,
+                                            key=f"dl_zip_{selected_invoice}"
+                                        )
+                                    else:
+                                        st.caption("⚡ Haz clic en 'Generar Expediente ZIP' para compilar todos los archivos en segundo plano sin congelar la pantalla.")
 
                         if role == "almacen":
                             if row_data['estatus'] in ["En Aduanas", "En Tránsito 1", "En Tránsito 2", "En Tránsito 3"]:
@@ -1081,16 +1170,22 @@ elif menu == "📋 Control de Embarques":
                                             "fecha_entrega": today_str,
                                             "dias_en_aduana": dias_aduana_calc
                                         }).eq("num_invoice", selected_invoice).execute()
-                                    except Exception:
+                                    except Exception as e1:
+                                        logging.warning(f"Aviso actualizando embarque con dias_en_aduana: {e1}. Reintentando sin dias_en_aduana...")
                                         try:
                                             supabase.table("embarques").update({
                                                 "estatus": "Entregado",
                                                 "fecha_entrega": today_str
                                             }).eq("num_invoice", selected_invoice).execute()
-                                        except Exception:
-                                            supabase.table("embarques").update({
-                                                "estatus": "Entregado"
-                                            }).eq("num_invoice", selected_invoice).execute()
+                                        except Exception as e2:
+                                            logging.warning(f"Aviso actualizando con fecha_entrega: {e2}. Actualizando solo estatus...")
+                                            try:
+                                                supabase.table("embarques").update({
+                                                    "estatus": "Entregado"
+                                                }).eq("num_invoice", selected_invoice).execute()
+                                            except Exception as e3:
+                                                logging.error(f"🚨 Error crítico actualizando entrega en Supabase: {e3}")
+                                                st.error(f"❌ Error al registrar entrega en la base de datos: {e3}")
 
                                     enviar_alerta_telegram(f"📦 *EMBARQUE ENTREGADO EN ALMACÉN*\n\n• *Invoice:* {selected_invoice}\n• *Contenedor:* {row_data.get('num_contenedor')}\n• *Producto:* {row_data.get('producto')}\n• *Días en Aduana:* {dias_aduana_calc} día(s)\n• *Registrado por:* Almacén")
 
