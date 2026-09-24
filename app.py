@@ -157,6 +157,7 @@ TIPO_PAGO_LISTA = [
 ]
 
 TIPOS_DOCS_COMPRAS = [
+    "Proforma Invoice",
     "Certificado de Origen",
     "Manifiesto de Exportación",
     "Seguro de Carga",
@@ -305,16 +306,17 @@ def _descargar_archivo_zip(item):
         logging.error(f"🚨 Error al descargar archivo '{nombre_desc}' para el expediente: {e}")
     return None
 
-def generar_zip_expediente(num_invoice, row_data):
+def generar_zip_expediente(num_invoice, row_data, incluir_pagos=True):
     """
-    Genera un archivo comprimido .ZIP con todos los documentos principales y anexos,
-    optimizando la descarga de archivos mediante ejecución en paralelo (ThreadPoolExecutor).
+    Genera un archivo comprimido .ZIP con todos los documentos principales (incluyendo Proforma Invoice),
+    anexos y opcionalmente comprobantes de pago, optimizando la descarga mediante ThreadPoolExecutor.
     """
     buffer = io.BytesIO()
     items_a_descargar = []
 
     # 1. Documentos Principales
     core_docs = [
+        ('Proforma_Invoice', row_data.get('path_proforma')),
         ('Packing_List', row_data.get('path_packing')),
         ('Factura_Comercial', row_data.get('path_invoice')),
         ('Factura_Flete', row_data.get('path_flete')),
@@ -341,7 +343,23 @@ def generar_zip_expediente(num_invoice, row_data):
     except Exception as e:
         logging.error(f"🚨 Error al consultar anexos de invoice '{num_invoice}' en Supabase: {e}")
 
-    # 3. Descarga concurrente con ZipFile
+    # 3. Comprobantes de Pago (Módulo de Pagos)
+    if incluir_pagos:
+        try:
+            res_pag = supabase.table("pagos_embarques").select("*").eq("num_invoice", num_invoice).execute()
+            if res_pag.data:
+                for idx_p, pago in enumerate(res_pag.data, 1):
+                    p_url = clean_url(pago.get("path_comprobante"))
+                    if p_url and p_url.startswith('http'):
+                        p_tipo = str(pago.get("tipo_pago", "Pago")).replace(' ', '_')
+                        p_ref = "".join(c for c in str(pago.get("referencia", f"pago_{idx_p}")) if c.isalnum() or c in ('-', '_'))
+                        fname = p_url.split('/')[-1]
+                        ruta_zip = f"Comprobantes_Pago/{p_tipo}_Ref_{p_ref}_{fname}"
+                        items_a_descargar.append((ruta_zip, p_url, f"Pago ({p_tipo}): Ref {p_ref}"))
+        except Exception as e:
+            logging.error(f"🚨 Error al consultar comprobantes de pago de invoice '{num_invoice}': {e}")
+
+    # 4. Descarga concurrente con ZipFile
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
         if items_a_descargar:
             max_workers = min(6, len(items_a_descargar))
@@ -351,6 +369,87 @@ def generar_zip_expediente(num_invoice, row_data):
                     if res:
                         ruta_en_zip, contenido = res
                         zip_file.writestr(ruta_en_zip, contenido)
+
+    buffer.seek(0)
+    return buffer
+
+def generar_zip_multiple_expedientes(lista_embarques, incluir_pagos=True, progreso_callback=None):
+    """
+    Genera un archivo comprimido .ZIP masivo con carpetas individuales organizadas por cada embarque
+    seleccionado (ej. 'Embarque_INV-1001/Principales/...', 'Embarque_INV-1001/Comprobantes_Pago/...').
+    Ideal para respaldos masivos de disco duro.
+    """
+    buffer = io.BytesIO()
+    items_a_descargar = []
+
+    total_embarques = len(lista_embarques)
+    if total_embarques == 0:
+        buffer.seek(0)
+        return buffer
+
+    for idx, row_data in enumerate(lista_embarques):
+        inv = str(row_data.get('num_invoice', 'SIN_NUM')).strip()
+        safe_inv_folder = f"Embarque_{inv}"
+
+        # 1. Documentos Principales del Embarque
+        core_docs = [
+            ('Proforma_Invoice', row_data.get('path_proforma')),
+            ('Packing_List', row_data.get('path_packing')),
+            ('Factura_Comercial', row_data.get('path_invoice')),
+            ('Factura_Flete', row_data.get('path_flete')),
+            ('Bill_of_Lading', row_data.get('path_bl'))
+        ]
+        for label, url in core_docs:
+            url_clean = clean_url(url)
+            if url_clean and url_clean.startswith('http'):
+                fname = url_clean.split('/')[-1]
+                ruta_zip = f"{safe_inv_folder}/Principales/{label}_{fname}"
+                items_a_descargar.append((ruta_zip, url_clean, f"{inv} - Principal: {label}"))
+
+        # 2. Documentos Anexos del Embarque
+        try:
+            res_anx = supabase.table("documentos_embarque").select("*").eq("num_invoice", inv).execute()
+            if res_anx.data:
+                for doc in res_anx.data:
+                    d_url = clean_url(doc.get("path_archivo"))
+                    d_tipo = str(doc.get("tipo_documento", "Anexo")).replace(' ', '_')
+                    d_nombre = doc.get("nombre_archivo", "archivo")
+                    if d_url and d_url.startswith('http'):
+                        ruta_zip = f"{safe_inv_folder}/Anexos/{d_tipo}/{d_nombre}"
+                        items_a_descargar.append((ruta_zip, d_url, f"{inv} - Anexo ({d_tipo}): {d_nombre}"))
+        except Exception as e:
+            logging.error(f"🚨 Error al consultar anexos para invoice '{inv}': {e}")
+
+        # 3. Comprobantes de Pago
+        if incluir_pagos:
+            try:
+                res_pag = supabase.table("pagos_embarques").select("*").eq("num_invoice", inv).execute()
+                if res_pag.data:
+                    for idx_p, pago in enumerate(res_pag.data, 1):
+                        p_url = clean_url(pago.get("path_comprobante"))
+                        if p_url and p_url.startswith('http'):
+                            p_tipo = str(pago.get("tipo_pago", "Pago")).replace(' ', '_')
+                            p_ref = "".join(c for c in str(pago.get("referencia", f"pago_{idx_p}")) if c.isalnum() or c in ('-', '_'))
+                            fname = p_url.split('/')[-1]
+                            ruta_zip = f"{safe_inv_folder}/Comprobantes_Pago/{p_tipo}_Ref_{p_ref}_{fname}"
+                            items_a_descargar.append((ruta_zip, p_url, f"{inv} - Pago ({p_tipo}): Ref {p_ref}"))
+            except Exception as e:
+                logging.error(f"🚨 Error al consultar pagos para invoice '{inv}': {e}")
+
+    # Descarga concurrente organizada con ZipFile
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        if items_a_descargar:
+            max_workers = min(8, len(items_a_descargar))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                total_archivos = len(items_a_descargar)
+                for count, res in enumerate(executor.map(_descargar_archivo_zip, items_a_descargar), 1):
+                    if res:
+                        ruta_en_zip, contenido = res
+                        zip_file.writestr(ruta_en_zip, contenido)
+                    if progreso_callback and total_archivos > 0:
+                        progreso_callback(count / total_archivos, count, total_archivos)
+        else:
+            zip_file.writestr("LEEME.txt", f"Respaldo generado el {datetime.now().strftime('%d/%m/%Y %H:%M')}.\nNo se encontraron archivos en la nube para los embarques seleccionados.")
 
     buffer.seek(0)
     return buffer
@@ -981,6 +1080,84 @@ elif menu == "📋 Control de Embarques":
             excel_bytes = generar_excel_embarques(df_export)
             st.download_button(
                 label="📊 Exportar a Excel (.xlsx)",
+                # ---------------------------------------------------------
+        # 💾 MÓDULO DE DESCARGA MÚLTIPLE DE EXPEDIENTES (RESPALDO DISCO DURO)
+        # ---------------------------------------------------------
+        if role == "admin" and not df_filtered.empty:
+            with st.expander("💾 **Descarga Múltiple de Expedientes Digitales (Respaldo en Disco Duro / .ZIP)**", expanded=False):
+                st.markdown("Descarga de forma masiva los expedientes de tus embarques agrupados en un único archivo comprimido `.zip` con carpetas individuales (`Principales/`, `Anexos/` y `Comprobantes_Pago/`).")
+                
+                c_mod1, c_mod2 = st.columns([2, 1])
+                with c_mod1:
+                    modo_respaldo = st.radio(
+                        "Seleccionar alcance del respaldo:",
+                        ["🌐 Todos los embarques mostrados en el filtro actual", "🎯 Seleccionar embarques específicos"],
+                        horizontal=True,
+                        key="radio_modo_respaldo"
+                    )
+                with c_mod2:
+                    incluir_comprobantes_pago = st.checkbox(
+                        "💳 Incluir Comprobantes de Pago",
+                        value=True,
+                        help="Adjunta los comprobantes de pago registrados en 'pagos_embarques' en la carpeta Comprobantes_Pago/",
+                        key="chk_incluir_pagos_bulk"
+                    )
+
+                invoices_seleccionadas = []
+                if modo_respaldo == "🌐 Todos los embarques mostrados en el filtro actual":
+                    invoices_seleccionadas = list(df_filtered['num_invoice'].unique())
+                    st.info(f"📁 Se empaquetarán los **{len(invoices_seleccionadas)}** embarques que coinciden con tu búsqueda y filtros.")
+                else:
+                    opciones_invoices = list(df_filtered['num_invoice'].unique())
+                    col_sel_btn1, col_sel_btn2 = st.columns([1, 4])
+                    invoices_seleccionadas = st.multiselect(
+                        "Selecciona las Invoices para empaquetar:",
+                        options=opciones_invoices,
+                        default=opciones_invoices[:min(5, len(opciones_invoices))],
+                        key="multiselect_invoices_respaldo"
+                    )
+                    st.caption(f"Embarques seleccionados para descargar: **{len(invoices_seleccionadas)}**")
+
+                c_gen_zip, c_desc_zip = st.columns([1, 1])
+                with c_gen_zip:
+                    btn_generar_masivo = st.button(
+                        f"📦 Generar ZIP de Respaldo ({len(invoices_seleccionadas)} embarques)",
+                        type="primary",
+                        use_container_width=True,
+                        disabled=(len(invoices_seleccionadas) == 0),
+                        key="btn_generar_zip_masivo"
+                    )
+                    if btn_generar_masivo and invoices_seleccionadas:
+                        embarques_data_list = df[df['num_invoice'].isin(invoices_seleccionadas)].to_dict('records')
+                        
+                        prog_bar = st.progress(0, text="Preparando descarga masiva concurrente...")
+                        def actualizar_progreso(ratio, count, total):
+                            prog_bar.progress(min(1.0, ratio), text=f"Descargando y empaquetando archivos: {count}/{total}")
+                        
+                        with st.spinner("Descargando documentos en paralelo de Supabase Storage y generando archivo ZIP..."):
+                            zip_masivo_buffer = generar_zip_multiple_expedientes(
+                                embarques_data_list,
+                                incluir_pagos=incluir_comprobantes_pago,
+                                progreso_callback=actualizar_progreso
+                            )
+                            st.session_state["zip_masivo_bytes"] = zip_masivo_buffer.getvalue()
+                            prog_bar.progress(1.0, text="¡Empaquetado completado!")
+                        st.success(f"✅ ¡Respaldo ZIP de {len(invoices_seleccionadas)} embarques generado exitosamente!")
+
+                with c_desc_zip:
+                    if st.session_state.get("zip_masivo_bytes"):
+                        fecha_hoy_str = date.today().strftime('%Y%m%d')
+                        st.download_button(
+                            label=f"⬇️ Guardar Respaldo_Embarques_{fecha_hoy_str}.zip",
+                            data=st.session_state["zip_masivo_bytes"],
+                            file_name=f"Respaldo_Embarques_{fecha_hoy_str}.zip",
+                            mime="application/zip",
+                            type="secondary",
+                            use_container_width=True,
+                            key="btn_descargar_zip_masivo"
+                        )
+                    else:
+                        st.caption("⚡ Haz clic en 'Generar ZIP de Respaldo' para compilar todos los archivos seleccionados.")
                 data=excel_bytes,
                 file_name=f"Reporte_Embarques_{date.today().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1096,6 +1273,7 @@ elif menu == "📋 Control de Embarques":
                                 docs_principales = [("Packing List", row_data.get('path_packing'))]
                             else:
                                 docs_principales = [
+                                    ("Proforma Invoice", row_data.get('path_proforma')),
                                     ("Packing List", row_data.get('path_packing')),
                                     ("Factura Comercial (Invoice)", row_data.get('path_invoice')),
                                     ("Factura de Flete", row_data.get('path_flete')),
@@ -1736,7 +1914,9 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
             eta = st.date_input("Estimado de Arribo (ETA)")
         
         st.markdown("### Adjuntar Documentación a Supabase (PDF/Excel)")
-        col_f1, col_f2 = st.columns(2)
+        col_f0, col_f1, col_f2 = st.columns(3)
+        with col_f0:
+            file_proforma = st.file_uploader("Proforma Invoice (Origen del Pedido)", type=["pdf", "xlsx", "xls", "png", "jpg"])
         with col_f1:
             file_packing = st.file_uploader("Packing List (Para Almacén)", type=["pdf", "xlsx"])
             file_invoice = st.file_uploader("Factura Comercial (Invoice)", type=["pdf"])
@@ -1749,30 +1929,46 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
             if not num_invoice or not num_bl:
                 st.error("❌ El N° de Invoice y N° de BL son obligatorios.")
             else:
+                p_prof = upload_file_to_supabase(file_proforma, num_invoice, "PROF")
                 p_pack = upload_file_to_supabase(file_packing, num_invoice, "PACK")
                 p_inv = upload_file_to_supabase(file_invoice, num_invoice, "INV")
                 p_fle = upload_file_to_supabase(file_flete, num_invoice, "FLE")
                 p_bl = upload_file_to_supabase(file_bl, num_invoice, "BL")
                 
                 try:
-                    supabase.table("embarques").insert({
+                    payload_nuevo = {
                         "origen": origen, "destino": destino, "fabricante": fabricante,
                         "num_invoice": num_invoice, "agente_carga": agente_carga,
                         "agente_aduanas": agente_aduanas, "consignatario": consignatario,
                         "producto": producto, "num_bl": num_bl, "naviera": naviera,
                         "num_contenedor": num_contenedor, "eta": str(eta), "estatus": estatus,
+                        "path_proforma": p_prof,
                         "path_packing": p_pack, "path_invoice": p_inv, "path_flete": p_fle,
                         "path_bl": p_bl, "monto_factura": monto_factura, "moneda_factura": moneda_factura,
                         "monto_flete": monto_flete, "moneda_flete": moneda_flete,
                         "fecha_listo_produccion": str(fecha_prod_input)
-                    }).execute()
+                    }
+                    try:
+                        supabase.table("embarques").insert(payload_nuevo).execute()
+                    except Exception as e_prof:
+                        if "path_proforma" in str(e_prof):
+                            payload_fallback = payload_nuevo.copy()
+                            del payload_fallback["path_proforma"]
+                            supabase.table("embarques").insert(payload_fallback).execute()
+                            if p_prof:
+                                supabase.table("documentos_embarque").insert({
+                                    "num_invoice": num_invoice, "tipo_documento": "Proforma Invoice",
+                                    "nombre_archivo": file_proforma.name if file_proforma else "Proforma_Invoice.pdf",
+                                    "path_archivo": p_prof, "fecha_subida": str(date.today()), "subido_por": st.session_state.user_dept
+                                }).execute()
+                        else:
+                            raise e_prof
                     
                     enviar_alerta_telegram(f"🚢 *NUEVO EMBARQUE REGISTRADO*\n\n• *Invoice:* {num_invoice}\n• *Fabricante:* {fabricante}\n• *Producto:* {producto}\n• *Contenedor:* {num_contenedor}\n• *ETA:* {eta}")
 
                     st.success(f"✅ Embarque Invoice {num_invoice} guardado exitosamente.")
                 except Exception as e:
                     st.error(f"❌ La Invoice {num_invoice} ya existe o hubo un fallo: {e}")
-
 # --- MENÚ 6: EDITAR EMBARQUE ---
 elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
     st.title("✏️ Editar Embarque Existente")
@@ -1838,7 +2034,9 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                 eta_edit = st.date_input("Estimado de Arribo (ETA)", value=fecha_val)
             
             st.markdown("### Actualizar / Reemplazar Documentos (Opcional)")
-            col_f1, col_f2 = st.columns(2)
+            col_f0, col_f1, col_f2 = st.columns(3)
+            with col_f0:
+                new_file_proforma = st.file_uploader("Nueva Proforma Invoice", type=["pdf", "xlsx", "xls", "png", "jpg"], key="edit_prof")
             with col_f1:
                 new_file_packing = st.file_uploader("Nuevo Packing List", type=["pdf", "xlsx"], key="edit_pack")
                 new_file_invoice = st.file_uploader("Nueva Factura Comercial", type=["pdf"], key="edit_inv")
@@ -1848,10 +2046,45 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
 
             submit_edit = st.form_submit_button("💾 Guardar Cambios en Supabase", type="primary", use_container_width=True)
             if submit_edit:
+                p_prof = upload_file_to_supabase(new_file_proforma, selected_invoice, "PROF") if new_file_proforma else clean_url(row.get('path_proforma'))
                 p_pack = upload_file_to_supabase(new_file_packing, selected_invoice, "PACK") if new_file_packing else clean_url(row.get('path_packing'))
                 p_inv = upload_file_to_supabase(new_file_invoice, selected_invoice, "INV") if new_file_invoice else clean_url(row.get('path_invoice'))
                 p_fle = upload_file_to_supabase(new_file_flete, selected_invoice, "FLE") if new_file_flete else clean_url(row.get('path_flete'))
                 p_bl = upload_file_to_supabase(new_file_bl, selected_invoice, "BL") if new_file_bl else clean_url(row.get('path_bl'))
+                
+                estatus_anterior = str(row.get('estatus'))
+                eta_anterior = str(row.get('eta'))
+
+                update_payload = {
+                    "origen": origen_edit, "destino": destino_edit, "fabricante": fabricante_edit,
+                    "agente_carga": agente_carga_edit, "agente_aduanas": agente_aduanas_edit,
+                    "consignatario": consignatario_edit, "producto": producto_edit, "num_bl": num_bl_edit,
+                    "naviera": naviera_edit, "num_contenedor": num_contenedor_edit, "eta": str(eta_edit),
+                    "estatus": estatus_edit, "path_proforma": p_prof, "path_packing": p_pack, "path_invoice": p_inv,
+                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit,
+                    "moneda_factura": moneda_factura_edit, "monto_flete": monto_flete_edit,
+                    "moneda_flete": moneda_flete_edit, "fecha_listo_produccion": str(fecha_prod_edit)
+                }
+
+                if estatus_edit == "Entregado" and row.get('estatus') != "Entregado":
+                    update_payload["fecha_entrega"] = str(date.today())
+                    update_payload["dias_en_aduana"] = max(0, (date.today() - eta_edit).days)
+
+                try:
+                    try:
+                        supabase.table("embarques").update(update_payload).eq("num_invoice", selected_invoice).execute()
+                    except Exception as e_prof_up:
+                        if "path_proforma" in str(e_prof_up):
+                            del update_payload["path_proforma"]
+                            supabase.table("embarques").update(update_payload).eq("num_invoice", selected_invoice).execute()
+                            if new_file_proforma and p_prof:
+                                supabase.table("documentos_embarque").insert({
+                                    "num_invoice": selected_invoice, "tipo_documento": "Proforma Invoice",
+                                    "nombre_archivo": new_file_proforma.name, "path_archivo": p_prof,
+                                    "fecha_subida": str(date.today()), "subido_por": st.session_state.user_dept
+                                }).execute()
+                        else:
+                            raise e_prof_up
                 
                 estatus_anterior = str(row.get('estatus'))
                 eta_anterior = str(row.get('eta'))
