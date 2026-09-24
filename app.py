@@ -1083,7 +1083,7 @@ elif menu == "📋 Control de Embarques":
                 # ---------------------------------------------------------
         # 💾 MÓDULO DE DESCARGA MÚLTIPLE DE EXPEDIENTES (RESPALDO DISCO DURO)
         # ---------------------------------------------------------
-        if role == "admin" and not df_filtered.empty:
+            if role == "admin" and not df_filtered.empty:
             with st.expander("💾 **Descarga Múltiple de Expedientes Digitales (Respaldo en Disco Duro / .ZIP)**", expanded=False):
                 st.markdown("Descarga de forma masiva los expedientes de tus embarques agrupados en un único archivo comprimido `.zip` con carpetas individuales (`Principales/`, `Anexos/` y `Comprobantes_Pago/`).")
                 
