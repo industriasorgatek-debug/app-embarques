@@ -449,6 +449,7 @@ def generar_zip_multiple_expedientes(lista_embarques, incluir_pagos=True, progre
                     if progreso_callback and total_archivos > 0:
                         progreso_callback(count / total_archivos, count, total_archivos)
         else:
+            # Si no hay archivos subidos, dejar un archivo informativo
             zip_file.writestr("LEEME.txt", f"Respaldo generado el {datetime.now().strftime('%d/%m/%Y %H:%M')}.\nNo se encontraron archivos en la nube para los embarques seleccionados.")
 
     buffer.seek(0)
@@ -1071,7 +1072,7 @@ elif menu == "📋 Control de Embarques":
         if filtro_naviera != "Todas": df_filtered = df_filtered[df_filtered['naviera'] == filtro_naviera]
         if role == "admin" and filtro_flete != "Todos": df_filtered = df_filtered[df_filtered['pago_flete_status'] == filtro_flete]
 
-        c_top1, c_top2 = st.columns([2, 1])
+        c_top1, c_top2 = st.columns([1.5, 1])
         with c_top1:
             st.caption(f"📊 Mostrando **{len(df_filtered)}** de **{len(df)}** embarque(s) registrado(s).")
         
@@ -1080,10 +1081,16 @@ elif menu == "📋 Control de Embarques":
             excel_bytes = generar_excel_embarques(df_export)
             st.download_button(
                 label="📊 Exportar a Excel (.xlsx)",
-                # ---------------------------------------------------------
+                data=excel_bytes,
+                file_name=f"Reporte_Embarques_{date.today().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+        # ---------------------------------------------------------
         # 💾 MÓDULO DE DESCARGA MÚLTIPLE DE EXPEDIENTES (RESPALDO DISCO DURO)
         # ---------------------------------------------------------
-            if role == "admin" and not df_filtered.empty:
+        if role == "admin" and not df_filtered.empty:
             with st.expander("💾 **Descarga Múltiple de Expedientes Digitales (Respaldo en Disco Duro / .ZIP)**", expanded=False):
                 st.markdown("Descarga de forma masiva los expedientes de tus embarques agrupados en un único archivo comprimido `.zip` con carpetas individuales (`Principales/`, `Anexos/` y `Comprobantes_Pago/`).")
                 
@@ -1158,11 +1165,6 @@ elif menu == "📋 Control de Embarques":
                         )
                     else:
                         st.caption("⚡ Haz clic en 'Generar ZIP de Respaldo' para compilar todos los archivos seleccionados.")
-                data=excel_bytes,
-                file_name=f"Reporte_Embarques_{date.today().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
 
         if df_filtered.empty:
             st.warning("⚠️ No se encontraron embarques que coincidan con los criterios de búsqueda.")
@@ -1951,6 +1953,7 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
                     try:
                         supabase.table("embarques").insert(payload_nuevo).execute()
                     except Exception as e_prof:
+                        # Si la columna path_proforma aún no existe en Supabase, guarda sin ella y como anexo
                         if "path_proforma" in str(e_prof):
                             payload_fallback = payload_nuevo.copy()
                             del payload_fallback["path_proforma"]
@@ -1969,6 +1972,7 @@ elif menu == "➕ Cargar Nuevo Embarque" and role == "admin":
                     st.success(f"✅ Embarque Invoice {num_invoice} guardado exitosamente.")
                 except Exception as e:
                     st.error(f"❌ La Invoice {num_invoice} ya existe o hubo un fallo: {e}")
+
 # --- MENÚ 6: EDITAR EMBARQUE ---
 elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
     st.title("✏️ Editar Embarque Existente")
@@ -2085,27 +2089,6 @@ elif menu == "✏️ Editar / Actualizar Embarque" and role == "admin":
                                 }).execute()
                         else:
                             raise e_prof_up
-                
-                estatus_anterior = str(row.get('estatus'))
-                eta_anterior = str(row.get('eta'))
-
-                update_payload = {
-                    "origen": origen_edit, "destino": destino_edit, "fabricante": fabricante_edit,
-                    "agente_carga": agente_carga_edit, "agente_aduanas": agente_aduanas_edit,
-                    "consignatario": consignatario_edit, "producto": producto_edit, "num_bl": num_bl_edit,
-                    "naviera": naviera_edit, "num_contenedor": num_contenedor_edit, "eta": str(eta_edit),
-                    "estatus": estatus_edit, "path_packing": p_pack, "path_invoice": p_inv,
-                    "path_flete": p_fle, "path_bl": p_bl, "monto_factura": monto_factura_edit,
-                    "moneda_factura": moneda_factura_edit, "monto_flete": monto_flete_edit,
-                    "moneda_flete": moneda_flete_edit, "fecha_listo_produccion": str(fecha_prod_edit)
-                }
-
-                if estatus_edit == "Entregado" and row.get('estatus') != "Entregado":
-                    update_payload["fecha_entrega"] = str(date.today())
-                    update_payload["dias_en_aduana"] = max(0, (date.today() - eta_edit).days)
-
-                try:
-                    supabase.table("embarques").update(update_payload).eq("num_invoice", selected_invoice).execute()
                     
                     # ALERTAR A TELEGRAM SI CAMBIÓ EL ESTATUS O LA FECHA DE ARRIBO (ETA)
                     if estatus_edit != estatus_anterior or str(eta_edit) != eta_anterior:
